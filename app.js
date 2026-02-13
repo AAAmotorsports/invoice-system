@@ -7,7 +7,8 @@ const STORAGE_KEYS = {
   inventory: 'invoice_sys_inventory',
   invoices: 'invoice_sys_invoices',
   settings: 'invoice_sys_settings',
-  customers: 'invoice_sys_customers'
+  customers: 'invoice_sys_customers',
+  purchases: 'invoice_sys_purchases'
 };
 
 const DEFAULT_SETTINGS = {
@@ -56,6 +57,23 @@ function getSettings() { return loadData(STORAGE_KEYS.settings) || { ...DEFAULT_
 function setSettings(settings) { saveData(STORAGE_KEYS.settings, settings); markUnsaved(); }
 function getCustomers() { return loadData(STORAGE_KEYS.customers) || []; }
 function setCustomers(customers) { saveData(STORAGE_KEYS.customers, customers); markUnsaved(); }
+function getPurchases() { return loadData(STORAGE_KEYS.purchases) || []; }
+function setPurchases(purchases) { saveData(STORAGE_KEYS.purchases, purchases); markUnsaved(); }
+
+// 仕入れ履歴を記録
+function addPurchase(itemName, quantity, unitPrice, date) {
+  const purchases = getPurchases();
+  purchases.push({
+    id: generateId(),
+    itemName: itemName,
+    quantity: quantity,
+    unitPrice: unitPrice,
+    amount: quantity * unitPrice,
+    date: date || new Date().toISOString().slice(0, 10),
+    createdAt: Date.now()
+  });
+  setPurchases(purchases);
+}
 
 function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -173,12 +191,14 @@ function renderDashboard() {
   const totalRevenue = invoices.reduce((sum, inv) => sum + (inv.total || 0), 0);
   const lowStockCount = inventory.filter(i => i.quantity <= 3).length;
 
-  // 今月の売上
+  // 今月の売上・仕入れ
   const now = new Date();
   const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const monthInvoices = invoices.filter(inv => inv.invoiceDate && inv.invoiceDate.startsWith(thisMonth));
   const monthlyRevenue = monthInvoices.reduce((sum, inv) => sum + (inv.total || 0), 0);
-  const monthlyCost = monthInvoices.reduce((sum, inv) => sum + (inv.totalCost || 0), 0);
+  const purchases = getPurchases();
+  const monthPurchases = purchases.filter(p => p.date && p.date.startsWith(thisMonth));
+  const monthlyCost = monthPurchases.reduce((sum, p) => sum + (p.amount || 0), 0);
   const monthlyProfit = monthlyRevenue - monthlyCost;
 
   document.getElementById('dashboard-stats').innerHTML = `
@@ -199,7 +219,13 @@ function renderDashboard() {
     monthlyMap[m].subtotal += (inv.subtotal || 0);
     monthlyMap[m].tax += (inv.tax || 0);
     monthlyMap[m].total += (inv.total || 0);
-    monthlyMap[m].cost += (inv.totalCost || 0);
+  });
+  // 仕入れ履歴から月別仕入れを集計
+  purchases.forEach(p => {
+    if (!p.date) return;
+    const m = p.date.slice(0, 7);
+    if (!monthlyMap[m]) monthlyMap[m] = { count: 0, subtotal: 0, tax: 0, total: 0, cost: 0 };
+    monthlyMap[m].cost += (p.amount || 0);
   });
   const monthlyEl = document.getElementById('monthly-sales-history');
   const monthKeys = Object.keys(monthlyMap).sort().reverse();
@@ -388,10 +414,22 @@ function saveItem() {
   const inventory = getInventory();
   if (id) {
     const idx = inventory.findIndex(i => i.id === id);
-    if (idx !== -1) inventory[idx] = { ...inventory[idx], name, quantity, unit, unitPrice, retailPrice };
+    if (idx !== -1) {
+      const oldQty = inventory[idx].quantity || 0;
+      const addedQty = quantity - oldQty;
+      // 数量が増えた場合は仕入れ履歴に記録
+      if (addedQty > 0 && unitPrice > 0) {
+        addPurchase(name, addedQty, unitPrice);
+      }
+      inventory[idx] = { ...inventory[idx], name, quantity, unit, unitPrice, retailPrice };
+    }
     showToast('商品を更新しました');
   } else {
     inventory.push({ id: generateId(), name, quantity, unit, unitPrice, retailPrice });
+    // 新規追加で数量があれば仕入れ履歴に記録
+    if (quantity > 0 && unitPrice > 0) {
+      addPurchase(name, quantity, unitPrice);
+    }
     showToast('商品を追加しました');
   }
   setInventory(inventory);
@@ -465,6 +503,10 @@ function importCSV(event) {
         if (unit) existing.unit = unit;
       } else {
         inventory.push({ id: generateId(), name, quantity, unit, unitPrice, retailPrice });
+      }
+      // 仕入れ履歴に記録
+      if (quantity > 0 && unitPrice > 0) {
+        addPurchase(name, quantity, unitPrice);
       }
       count++;
     }
@@ -1196,12 +1238,13 @@ function deleteBank(id) {
 // ===================================================
 function exportBackup() {
   const data = {
-    version: 2,
+    version: 3,
     exportedAt: new Date().toISOString(),
     inventory: getInventory(),
     invoices: getInvoices(),
     settings: getSettings(),
-    customers: getCustomers()
+    customers: getCustomers(),
+    purchases: getPurchases()
   };
 
   const json = JSON.stringify(data, null, 2);
@@ -1236,6 +1279,7 @@ function importBackup(event) {
       setInvoices(data.invoices);
       setSettings(data.settings);
       if (data.customers) setCustomers(data.customers);
+      if (data.purchases) setPurchases(data.purchases);
       showToast('バックアップを復元しました');
       renderDashboard();
     } catch(e) {
@@ -1265,12 +1309,13 @@ let savedFileHandle = null; // File System Access API用
 
 function buildDataObject() {
   return {
-    version: 2,
+    version: 3,
     savedAt: new Date().toISOString(),
     inventory: getInventory(),
     invoices: getInvoices(),
     settings: getSettings(),
-    customers: getCustomers()
+    customers: getCustomers(),
+    purchases: getPurchases()
   };
 }
 
@@ -1280,6 +1325,7 @@ function applyLoadedData(data) {
   if (data.invoices) localStorage.setItem(STORAGE_KEYS.invoices, JSON.stringify(data.invoices));
   if (data.settings) localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(data.settings));
   if (data.customers) localStorage.setItem(STORAGE_KEYS.customers, JSON.stringify(data.customers));
+  if (data.purchases) localStorage.setItem(STORAGE_KEYS.purchases, JSON.stringify(data.purchases));
   markSaved();
   renderDashboard();
   refreshCreatePage();
