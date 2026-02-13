@@ -1119,7 +1119,7 @@ function uploadLogo(event) {
       canvas.height = h;
       const ctx = canvas.getContext('2d');
       ctx.drawImage(img, 0, 0, w, h);
-      const compressed = canvas.toDataURL('image/jpeg', 0.7);
+      const compressed = canvas.toDataURL('image/png');
 
       const s = getSettings();
       s.logoImage = compressed;
@@ -1491,7 +1491,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       canvas.width = w;
       canvas.height = h;
       canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-      currentSettings.logoImage = canvas.toDataURL('image/jpeg', 0.7);
+      currentSettings.logoImage = canvas.toDataURL('image/png');
       saveData(STORAGE_KEYS.settings, currentSettings);
       console.log('ロゴ画像を自動圧縮しました');
     };
