@@ -337,11 +337,67 @@ function showOlderMonth() {
 // ===================================================
 // INVENTORY MANAGEMENT
 // ===================================================
+// ---- カテゴリ関連 ----
+function getCategories() {
+  const inventory = getInventory();
+  const cats = [...new Set(inventory.map(i => i.category || '').filter(c => c))];
+  cats.sort((a, b) => a.localeCompare(b, 'ja'));
+  return cats;
+}
+
+function updateCategoryFilter() {
+  const select = document.getElementById('inventory-category-filter');
+  const current = select.value;
+  const cats = getCategories();
+  let html = '<option value="">全カテゴリ</option>';
+  html += cats.map(c => `<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`).join('');
+  select.innerHTML = html;
+  select.value = current;
+}
+
+function updateItemCategoryDropdown(selectedCat) {
+  const select = document.getElementById('item-category-select');
+  const cats = getCategories();
+  let html = '<option value="">-- 未分類 --</option>';
+  html += cats.map(c => `<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`).join('');
+  html += '<option value="__new__">+ 新規カテゴリ</option>';
+  select.innerHTML = html;
+  if (selectedCat) select.value = selectedCat;
+  document.getElementById('item-category-new').style.display = 'none';
+  document.getElementById('item-category-new').value = '';
+}
+
+function onItemCategoryChange() {
+  const select = document.getElementById('item-category-select');
+  const input = document.getElementById('item-category-new');
+  if (select.value === '__new__') {
+    input.style.display = 'block';
+    input.focus();
+  } else {
+    input.style.display = 'none';
+    input.value = '';
+  }
+}
+
+function getSelectedCategory() {
+  const select = document.getElementById('item-category-select');
+  if (select.value === '__new__') {
+    return document.getElementById('item-category-new').value.trim();
+  }
+  return select.value;
+}
+
 function renderInventory(search = '') {
   const inventory = getInventory();
-  const filtered = search
-    ? inventory.filter(i => i.name.toLowerCase().includes(search.toLowerCase()))
-    : inventory;
+  const categoryFilter = document.getElementById('inventory-category-filter').value;
+
+  let filtered = inventory;
+  if (search) {
+    filtered = filtered.filter(i => i.name.toLowerCase().includes(search.toLowerCase()));
+  }
+  if (categoryFilter) {
+    filtered = filtered.filter(i => (i.category || '') === categoryFilter);
+  }
 
   const tbody = document.getElementById('inventory-table');
   const emptyEl = document.getElementById('inventory-empty');
@@ -349,28 +405,53 @@ function renderInventory(search = '') {
   if (filtered.length === 0) {
     tbody.innerHTML = '';
     emptyEl.style.display = 'block';
+    updateCategoryFilter();
     return;
   }
   emptyEl.style.display = 'none';
 
-  tbody.innerHTML = filtered.map(item => `
-    <tr>
-      <td><input type="checkbox" class="inv-check" value="${item.id}" onchange="updateInventoryBulkBar()"></td>
-      <td>${escapeHtml(item.name)}</td>
-      <td class="text-right">${formatNumber(item.quantity)}</td>
-      <td>${escapeHtml(item.unit || '')}</td>
-      <td class="text-right">${formatCurrency(item.unitPrice)}</td>
-      <td class="text-right">${formatCurrency(item.retailPrice || 0)}</td>
-      <td class="text-center">
-        <button class="btn btn-outline btn-sm" onclick="editItem('${item.id}')">編集</button>
-        <button class="btn btn-danger btn-sm" onclick="deleteItem('${item.id}')">削除</button>
-      </td>
-    </tr>
-  `).join('');
-  // チェック状態リセット
+  // カテゴリ別にグループ化し、カテゴリ名50音順、カテゴリ内も50音順
+  const groups = {};
+  filtered.forEach(item => {
+    const cat = item.category || '未分類';
+    if (!groups[cat]) groups[cat] = [];
+    groups[cat].push(item);
+  });
+
+  const sortedCats = Object.keys(groups).sort((a, b) => {
+    if (a === '未分類') return 1;
+    if (b === '未分類') return -1;
+    return a.localeCompare(b, 'ja');
+  });
+
+  let html = '';
+  sortedCats.forEach(cat => {
+    groups[cat].sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+    // カテゴリヘッダー行
+    html += `<tr class="category-header"><td colspan="8">📁 ${escapeHtml(cat)}（${groups[cat].length}件）</td></tr>`;
+    groups[cat].forEach(item => {
+      html += `
+        <tr>
+          <td><input type="checkbox" class="inv-check" value="${item.id}" onchange="updateInventoryBulkBar()"></td>
+          <td>${escapeHtml(item.category || '')}</td>
+          <td>${escapeHtml(item.name)}</td>
+          <td class="text-right">${formatNumber(item.quantity)}</td>
+          <td>${escapeHtml(item.unit || '')}</td>
+          <td class="text-right">${formatCurrency(item.unitPrice)}</td>
+          <td class="text-right">${formatCurrency(item.retailPrice || 0)}</td>
+          <td class="text-center">
+            <button class="btn btn-outline btn-sm" onclick="editItem('${item.id}')">編集</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteItem('${item.id}')">削除</button>
+          </td>
+        </tr>`;
+    });
+  });
+
+  tbody.innerHTML = html;
   const checkAll = document.getElementById('inventory-check-all');
   if (checkAll) checkAll.checked = false;
   updateInventoryBulkBar();
+  updateCategoryFilter();
 }
 
 document.getElementById('inventory-search').addEventListener('input', function() {
@@ -385,6 +466,7 @@ function showAddItemModal() {
   document.getElementById('item-unit').value = '';
   document.getElementById('item-price').value = '0';
   document.getElementById('item-retail-price').value = '0';
+  updateItemCategoryDropdown('');
   openModal('modal-item');
 }
 
@@ -398,12 +480,14 @@ function editItem(id) {
   document.getElementById('item-unit').value = item.unit || '';
   document.getElementById('item-price').value = item.unitPrice;
   document.getElementById('item-retail-price').value = item.retailPrice || 0;
+  updateItemCategoryDropdown(item.category || '');
   openModal('modal-item');
 }
 
 function saveItem() {
   const id = document.getElementById('edit-item-id').value;
   const name = document.getElementById('item-name').value.trim();
+  const category = getSelectedCategory();
   const quantity = parseInt(document.getElementById('item-qty').value, 10) || 0;
   const unit = document.getElementById('item-unit').value.trim();
   const unitPrice = parseInt(document.getElementById('item-price').value, 10) || 0;
@@ -421,11 +505,11 @@ function saveItem() {
       if (addedQty > 0 && unitPrice > 0) {
         addPurchase(name, addedQty, unitPrice);
       }
-      inventory[idx] = { ...inventory[idx], name, quantity, unit, unitPrice, retailPrice };
+      inventory[idx] = { ...inventory[idx], name, category, quantity, unit, unitPrice, retailPrice };
     }
     showToast('商品を更新しました');
   } else {
-    inventory.push({ id: generateId(), name, quantity, unit, unitPrice, retailPrice });
+    inventory.push({ id: generateId(), name, category, quantity, unit, unitPrice, retailPrice });
     // 新規追加で数量があれば仕入れ履歴に記録
     if (quantity > 0 && unitPrice > 0) {
       addPurchase(name, quantity, unitPrice);
@@ -493,6 +577,7 @@ function importCSV(event) {
       const unitPrice = parseInt(cols[2], 10) || 0;
       const retailPrice = cols[3] ? (parseInt(cols[3], 10) || 0) : 0;
       const unit = cols[4] ? cols[4].trim() : '';
+      const category = cols[5] ? cols[5].trim() : '';
       if (!name) continue;
 
       const existing = inventory.find(item => item.name === name);
@@ -501,8 +586,9 @@ function importCSV(event) {
         if (unitPrice > 0) existing.unitPrice = unitPrice;
         if (retailPrice > 0) existing.retailPrice = retailPrice;
         if (unit) existing.unit = unit;
+        if (category) existing.category = category;
       } else {
-        inventory.push({ id: generateId(), name, quantity, unit, unitPrice, retailPrice });
+        inventory.push({ id: generateId(), name, quantity, unit, unitPrice, retailPrice, category });
       }
       // 仕入れ履歴に記録
       if (quantity > 0 && unitPrice > 0) {

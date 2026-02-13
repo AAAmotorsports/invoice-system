@@ -77,6 +77,9 @@
     <h2>在庫管理</h2>
     <div class="toolbar">
       <input type="text" class="form-control search-input" id="inventory-search" placeholder="商品名で検索...">
+      <select class="form-control" id="inventory-category-filter" onchange="renderInventory(document.getElementById('inventory-search').value)" style="max-width:160px;">
+        <option value="">全カテゴリ</option>
+      </select>
       <button class="btn btn-primary" onclick="showAddItemModal()">+ 商品追加</button>
       <div class="file-input-wrap">
         <button class="btn btn-outline">CSVインポート</button>
@@ -92,6 +95,7 @@
         <thead>
           <tr>
             <th style="width:36px;"><input type="checkbox" id="inventory-check-all" onchange="toggleAllInventory(this.checked)"></th>
+            <th>カテゴリ</th>
             <th>商品名</th>
             <th class="text-right">数量</th>
             <th>単位</th>
@@ -327,6 +331,16 @@
   <div class="modal">
     <h3 id="modal-item-title">商品を追加</h3>
     <input type="hidden" id="edit-item-id">
+    <div class="form-group">
+      <label>カテゴリ</label>
+      <div style="display:flex;gap:8px;">
+        <select class="form-control" id="item-category-select" onchange="onItemCategoryChange()" style="flex:1;">
+          <option value="">-- 選択 --</option>
+          <option value="__new__">+ 新規カテゴリ</option>
+        </select>
+        <input type="text" class="form-control" id="item-category-new" placeholder="新しいカテゴリ名" style="flex:1;display:none;">
+      </div>
+    </div>
     <div class="form-group">
       <label>商品名</label>
       <input type="text" class="form-control" id="item-name" placeholder="商品名">

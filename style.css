@@ -503,6 +503,17 @@ tr[onclick]:hover { background: rgba(52,152,219,0.06); }
   font-weight: 500;
 }
 
+/* === Category header row === */
+.category-header td {
+  background: #f0f4f8;
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: #2d3748;
+  padding: 10px 12px !important;
+  border-bottom: 2px solid #cbd5e0;
+  letter-spacing: 0.02em;
+}
+
 /* === Checkbox styling === */
 .inv-check, .hist-check, #inventory-check-all {
   width: 18px;
