@@ -46,7 +46,13 @@ function startRealtimeSync() {
         // JSON文字列で保存されているデータをそのままlocalStorageへ
         if (remoteData.inventory_json) localStorage.setItem(STORAGE_KEYS.inventory, remoteData.inventory_json);
         if (remoteData.invoices_json) localStorage.setItem(STORAGE_KEYS.invoices, remoteData.invoices_json);
-        if (remoteData.settings_json) localStorage.setItem(STORAGE_KEYS.settings, remoteData.settings_json);
+        if (remoteData.settings_json) {
+          // ローカルのlogoImageを保持（同期対象外のため）
+          const localSettings = getSettings();
+          const remoteSettings = JSON.parse(remoteData.settings_json);
+          if (localSettings.logoImage) remoteSettings.logoImage = localSettings.logoImage;
+          localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(remoteSettings));
+        }
         if (remoteData.customers_json) localStorage.setItem(STORAGE_KEYS.customers, remoteData.customers_json);
         if (remoteData.purchases_json) localStorage.setItem(STORAGE_KEYS.purchases, remoteData.purchases_json);
         localStorage.setItem('invoice_sys_savedAt', remoteSavedAt);
@@ -85,13 +91,18 @@ function stopRealtimeSync() {
 async function pushToFirestore() {
   if (isSyncingFromFirestore) return;
 
+  // settingsからlogoImage（Base64で巨大）を除外して同期
+  const settings = getSettings();
+  const settingsForSync = { ...settings };
+  delete settingsForSync.logoImage;
+
   const savedAt = new Date().toISOString();
   const data = {
     version: 4,
     savedAt: savedAt,
     inventory_json: JSON.stringify(getInventory()),
     invoices_json: JSON.stringify(getInvoices()),
-    settings_json: JSON.stringify(getSettings()),
+    settings_json: JSON.stringify(settingsForSync),
     customers_json: JSON.stringify(getCustomers()),
     purchases_json: JSON.stringify(getPurchases())
   };
@@ -155,9 +166,16 @@ async function initialSync() {
           localStorage.setItem(STORAGE_KEYS.invoices, JSON.stringify(remoteData.invoices));
         }
         if (remoteData.settings_json) {
-          localStorage.setItem(STORAGE_KEYS.settings, remoteData.settings_json);
+          // ローカルのlogoImageを保持（同期対象外のため）
+          const localSettings = getSettings();
+          const remoteSettings = JSON.parse(remoteData.settings_json);
+          if (localSettings.logoImage) remoteSettings.logoImage = localSettings.logoImage;
+          localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(remoteSettings));
         } else if (remoteData.settings) {
-          localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(remoteData.settings));
+          const localSettings = getSettings();
+          const rs = remoteData.settings;
+          if (localSettings.logoImage) rs.logoImage = localSettings.logoImage;
+          localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(rs));
         }
         if (remoteData.customers_json) {
           localStorage.setItem(STORAGE_KEYS.customers, remoteData.customers_json);
