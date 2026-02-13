@@ -1,9 +1,10 @@
-const CACHE_NAME = 'invoice-system-v4';
+const CACHE_NAME = 'invoice-system-v7';
 const ASSETS = [
   './',
   './index.html',
   './style.css',
   './app.js',
+  './firebase-sync.js',
   './pdf-generator.js',
   './jspdf.umd.min.js',
   './MPLUS1p-Regular.ttf',
@@ -28,6 +29,12 @@ self.addEventListener('activate', event => {
 });
 
 self.addEventListener('fetch', event => {
+  const url = event.request.url;
+  // Firebase/Firestore の通信はキャッシュしない
+  if (url.includes('firebasejs') || url.includes('googleapis.com') || url.includes('firestore')) {
+    event.respondWith(fetch(event.request));
+    return;
+  }
   event.respondWith(
     caches.match(event.request).then(cached => cached || fetch(event.request))
   );

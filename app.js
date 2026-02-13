@@ -40,20 +40,12 @@ let dataUnsaved = false;
 
 function markUnsaved() {
   dataUnsaved = true;
-  const btn = document.getElementById('btn-save-data');
-  if (btn) {
-    btn.textContent = '保存 ●';
-    btn.style.background = '#e74c3c';
-  }
+  // Firestore同期
+  if (typeof debouncedPush === 'function') debouncedPush();
 }
 
 function markSaved() {
   dataUnsaved = false;
-  const btn = document.getElementById('btn-save-data');
-  if (btn) {
-    btn.textContent = '保存';
-    btn.style.background = '';
-  }
 }
 
 function getInventory() { return loadData(STORAGE_KEYS.inventory) || []; }
@@ -1218,26 +1210,34 @@ function hasFileSystemAccess() {
 }
 
 // --- 読込 ---
-// label > input[type=file] 構造で、タップ→直接ファイル選択が開く（iOS対応）
-// Chrome/Edgeの場合はFile System Access APIでハンドルを取得して上書き保存に対応
-function loadDataFile(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-
-  // Chrome/Edge: ファイルハンドルを取得して上書き保存に対応
-  if (hasFileSystemAccess() && event.target.id === 'data-file-input2') {
-    // ヘッダーの読込ボタンからの場合、showOpenFilePickerで再取得
-    (async () => {
-      try {
-        const [handle] = await window.showOpenFilePicker({
-          types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }],
-          multiple: false
-        });
-        savedFileHandle = handle;
-      } catch(e) { /* ignore */ }
-    })();
+async function loadDataFile(event) {
+  // Chrome/Edge: File System Access API でハンドル取得 → 上書き保存対応
+  if (hasFileSystemAccess()) {
+    event.preventDefault();
+    try {
+      const [handle] = await window.showOpenFilePicker({
+        types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }],
+        multiple: false
+      });
+      savedFileHandle = handle;
+      const file = await handle.getFile();
+      const text = await file.text();
+      const data = JSON.parse(text);
+      applyLoadedData(data);
+      showToast('データを読み込みました');
+    } catch(e) {
+      if (e.name !== 'AbortError') {
+        showToast('ファイルの読み込みに失敗しました', 'error');
+      }
+    }
+    const overlay = document.getElementById('data-load-overlay');
+    if (overlay) overlay.style.display = 'none';
+    return;
   }
 
+  // Safari/iOS: input[type=file] フォールバック
+  const file = event.target.files[0];
+  if (!file) return;
   const reader = new FileReader();
   reader.onload = function(e) {
     try {
@@ -1248,7 +1248,6 @@ function loadDataFile(event) {
       showToast('ファイルの読み込みに失敗しました', 'error');
     }
     event.target.value = '';
-    // オーバーレイを閉じる
     const overlay = document.getElementById('data-load-overlay');
     if (overlay) overlay.style.display = 'none';
   };
@@ -1309,9 +1308,9 @@ function skipDataLoad() {
   document.getElementById('data-load-overlay').style.display = 'none';
 }
 
-// 未保存データがある状態でページを離れようとした時の警告
+// 未保存データがある状態でページを離れようとした時の警告（同期失敗時のみ）
 window.addEventListener('beforeunload', function(e) {
-  if (dataUnsaved) {
+  if (dataUnsaved && !(typeof syncEnabled !== 'undefined' && syncEnabled)) {
     e.preventDefault();
     e.returnValue = '';
   }
@@ -1320,11 +1319,24 @@ window.addEventListener('beforeunload', function(e) {
 // ===================================================
 // INITIALIZATION
 // ===================================================
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   if (!loadData(STORAGE_KEYS.settings)) {
     setSettings(DEFAULT_SETTINGS);
-    markSaved(); // 初期設定なので未保存扱いにしない
   }
+
+  // localStorageにデータがあればオーバーレイをスキップ
+  const hasData = loadData(STORAGE_KEYS.inventory) || loadData(STORAGE_KEYS.invoices);
+  if (hasData) {
+    const overlay = document.getElementById('data-load-overlay');
+    if (overlay) overlay.style.display = 'none';
+  }
+
   renderDashboard();
   refreshCreatePage();
+
+  // Firebase同期開始
+  if (typeof startRealtimeSync === 'function') {
+    await initialSync();
+    startRealtimeSync();
+  }
 });

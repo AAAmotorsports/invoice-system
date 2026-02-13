@@ -33,6 +33,7 @@ body {
   background: var(--primary);
   color: #fff;
   padding: 12px 20px;
+  padding-top: calc(env(safe-area-inset-top) + 12px);
   display: flex;
   align-items: center;
   justify-content: space-between;

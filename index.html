@@ -13,29 +13,32 @@
 </head>
 <body>
 
-<!-- データ読込オーバーレイ（起動時） -->
+<!-- データ読込オーバーレイ（初回起動時のみ表示） -->
 <div id="data-load-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;">
   <div style="background:#fff;border-radius:16px;padding:32px;max-width:360px;width:90%;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,0.3);">
     <h2 style="margin:0 0 8px;">請求書発行システム</h2>
-    <p style="color:#666;margin:0 0 20px;font-size:0.9rem;">データファイルを読み込んで開始</p>
-    <label style="display:block;width:100%;padding:14px;font-size:1.1rem;font-weight:bold;background:#3498db;color:#fff;border:none;border-radius:10px;cursor:pointer;margin-bottom:10px;text-align:center;">
-      データ読込（data.json）
+    <p style="color:#666;margin:0 0 20px;font-size:0.9rem;">初回セットアップ</p>
+    <label style="display:block;width:100%;padding:14px;font-size:1.1rem;font-weight:bold;background:#3498db;color:#fff;border:none;border-radius:10px;cursor:pointer;margin-bottom:10px;text-align:center;" onclick="loadDataFile(event)">
+      data.json からインポート
       <input type="file" id="data-file-input" accept=".json,.JSON" onchange="loadDataFile(event)" style="display:none;">
     </label>
-    <button onclick="skipDataLoad()" style="display:block;width:100%;padding:10px;font-size:0.9rem;background:none;border:1px solid #ccc;border-radius:10px;cursor:pointer;color:#666;">新規 / ブラウザ内データで開始</button>
+    <button onclick="skipDataLoad()" style="display:block;width:100%;padding:10px;font-size:0.9rem;background:none;border:1px solid #ccc;border-radius:10px;cursor:pointer;color:#666;">新規で開始</button>
   </div>
 </div>
 
 <!-- Header -->
 <header class="app-header">
   <div style="display:flex;align-items:center;justify-content:space-between;width:100%;">
-    <h1 style="margin:0;">請求書発行システム</h1>
+    <div>
+      <h1 style="margin:0;">請求書発行システム</h1>
+      <div id="sync-status" style="font-size:0.7rem;opacity:0.8;"></div>
+    </div>
     <div style="display:flex;gap:6px;">
-      <label class="btn-header" style="display:inline-flex;align-items:center;cursor:pointer;margin:0;">
-        読込
+      <label class="btn-header" style="display:inline-flex;align-items:center;cursor:pointer;margin:0;" onclick="loadDataFile(event)">
+        インポート
         <input type="file" id="data-file-input2" accept=".json,.JSON" onchange="loadDataFile(event)" style="display:none;">
       </label>
-      <button onclick="saveDataFile()" class="btn-header btn-header-save" id="btn-save-data">保存</button>
+      <button onclick="saveDataFile()" class="btn-header">エクスポート</button>
     </div>
   </div>
 </header>
@@ -407,7 +410,10 @@
 <div class="toast-container" id="toast-container"></div>
 
 <script src="jspdf.umd.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 <script src="app.js"></script>
+<script src="firebase-sync.js"></script>
 <script src="pdf-generator.js"></script>
 <script>
   if ('serviceWorker' in navigator) {
