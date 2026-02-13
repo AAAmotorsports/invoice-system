@@ -322,6 +322,7 @@ function renderInventory(search = '') {
 
   tbody.innerHTML = filtered.map(item => `
     <tr>
+      <td><input type="checkbox" class="inv-check" value="${item.id}" onchange="updateInventoryBulkBar()"></td>
       <td>${escapeHtml(item.name)}</td>
       <td class="text-right">${formatNumber(item.quantity)}</td>
       <td>${escapeHtml(item.unit || '')}</td>
@@ -332,6 +333,10 @@ function renderInventory(search = '') {
       </td>
     </tr>
   `).join('');
+  // チェック状態リセット
+  const checkAll = document.getElementById('inventory-check-all');
+  if (checkAll) checkAll.checked = false;
+  updateInventoryBulkBar();
 }
 
 document.getElementById('inventory-search').addEventListener('input', function() {
@@ -387,6 +392,34 @@ function deleteItem(id) {
   if (!confirm('この商品を削除しますか？')) return;
   setInventory(getInventory().filter(i => i.id !== id));
   showToast('商品を削除しました');
+  renderInventory(document.getElementById('inventory-search').value);
+}
+
+// ---- 在庫 一括選択・削除 ----
+function toggleAllInventory(checked) {
+  document.querySelectorAll('.inv-check').forEach(cb => cb.checked = checked);
+  updateInventoryBulkBar();
+}
+
+function updateInventoryBulkBar() {
+  const checked = document.querySelectorAll('.inv-check:checked');
+  const bar = document.getElementById('inventory-bulk-bar');
+  const count = document.getElementById('inventory-checked-count');
+  if (checked.length > 0) {
+    bar.style.display = 'flex';
+    count.textContent = checked.length + '件選択中';
+  } else {
+    bar.style.display = 'none';
+  }
+}
+
+function bulkDeleteInventory() {
+  const checked = document.querySelectorAll('.inv-check:checked');
+  if (checked.length === 0) return;
+  if (!confirm(`${checked.length}件の商品を削除しますか？`)) return;
+  const ids = Array.from(checked).map(cb => cb.value);
+  setInventory(getInventory().filter(i => !ids.includes(i.id)));
+  showToast(`${ids.length}件の商品を削除しました`);
   renderInventory(document.getElementById('inventory-search').value);
 }
 
@@ -681,15 +714,19 @@ function renderHistory(search = '') {
   emptyEl.style.display = 'none';
 
   listEl.innerHTML = sorted.map(inv => `
-    <div class="history-card" onclick="showInvoiceDetail('${inv.id}')">
-      <div class="hc-header">
-        <span class="hc-customer">${escapeHtml(inv.customerName)} 様</span>
-        <span class="hc-date">${inv.invoiceDate}</span>
+    <div class="history-card" style="display:flex;align-items:center;gap:10px;">
+      <input type="checkbox" class="hist-check" value="${inv.id}" onchange="updateHistoryBulkBar()" onclick="event.stopPropagation()">
+      <div style="flex:1;cursor:pointer;" onclick="showInvoiceDetail('${inv.id}')">
+        <div class="hc-header">
+          <span class="hc-customer">${escapeHtml(inv.customerName)} 様</span>
+          <span class="hc-date">${inv.invoiceDate}</span>
+        </div>
+        <div class="hc-subject">${escapeHtml(inv.subject)} (${inv.invoiceNumber})</div>
+        <div class="hc-total">${formatCurrency(inv.total)}</div>
       </div>
-      <div class="hc-subject">${escapeHtml(inv.subject)} (${inv.invoiceNumber})</div>
-      <div class="hc-total">${formatCurrency(inv.total)}</div>
     </div>
   `).join('');
+  updateHistoryBulkBar();
 }
 
 document.getElementById('history-search').addEventListener('input', function() {
@@ -744,6 +781,30 @@ function deleteInvoice() {
   renderHistory();
   renderSalesHistory();
   showToast('請求書を削除しました');
+}
+
+// ---- 請求書 一括選択・削除 ----
+function updateHistoryBulkBar() {
+  const checked = document.querySelectorAll('.hist-check:checked');
+  const bar = document.getElementById('history-bulk-bar');
+  const count = document.getElementById('history-checked-count');
+  if (checked.length > 0) {
+    bar.style.display = 'flex';
+    count.textContent = checked.length + '件選択中';
+  } else {
+    bar.style.display = 'none';
+  }
+}
+
+function bulkDeleteInvoices() {
+  const checked = document.querySelectorAll('.hist-check:checked');
+  if (checked.length === 0) return;
+  if (!confirm(`${checked.length}件の請求書を削除しますか？\n\nこの操作は取り消せません。`)) return;
+  const ids = Array.from(checked).map(cb => cb.value);
+  setInvoices(getInvoices().filter(i => !ids.includes(i.id)));
+  showToast(`${ids.length}件の請求書を削除しました`);
+  renderHistory();
+  renderSalesHistory();
 }
 
 async function reissueInvoice() {

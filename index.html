@@ -83,10 +83,15 @@
         <input type="file" accept=".csv" onchange="importCSV(event)">
       </div>
     </div>
+    <div id="inventory-bulk-bar" class="bulk-bar" style="display:none;">
+      <span id="inventory-checked-count">0件選択中</span>
+      <button class="btn btn-danger btn-sm" onclick="bulkDeleteInventory()">選択した商品を削除</button>
+    </div>
     <div class="table-wrap">
       <table>
         <thead>
           <tr>
+            <th style="width:36px;"><input type="checkbox" id="inventory-check-all" onchange="toggleAllInventory(this.checked)"></th>
             <th>商品名</th>
             <th class="text-right">数量</th>
             <th>単位</th>
@@ -193,6 +198,10 @@
     <h2>請求書履歴</h2>
     <div class="toolbar">
       <input type="text" class="form-control search-input" id="history-search" placeholder="顧客名・件名で検索...">
+    </div>
+    <div id="history-bulk-bar" class="bulk-bar" style="display:none;">
+      <span id="history-checked-count">0件選択中</span>
+      <button class="btn btn-danger btn-sm" onclick="bulkDeleteInvoices()">選択した請求書を削除</button>
     </div>
     <div id="history-list"></div>
     <div id="history-empty" class="empty-state" style="display:none;">
