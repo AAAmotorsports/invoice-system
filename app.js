@@ -275,7 +275,7 @@ function renderDashboard() {
     recentEl.innerHTML = recent.map(inv => `
       <div class="history-card" onclick="showInvoiceDetail('${inv.id}')">
         <div class="hc-header">
-          <span class="hc-customer">${escapeHtml(inv.customerName)} 様</span>
+          <span class="hc-customer">${escapeHtml(inv.customerName)} ${escapeHtml(inv.honorific || '様')}</span>
           <span class="hc-date">${inv.invoiceDate}</span>
         </div>
         <div class="hc-subject">${escapeHtml(inv.subject)} (${inv.invoiceNumber})</div>
@@ -744,6 +744,7 @@ function updateInvoiceTotals() {
 // ---- Issue Invoice ----
 async function issueInvoice() {
   const customerName = getSelectedCustomerName();
+  const honorific = document.getElementById('inv-honorific').value;
   const subject = document.getElementById('inv-subject').value.trim();
   const invoiceDate = document.getElementById('inv-date').value;
   const dueDate = document.getElementById('inv-due-date').value;
@@ -767,7 +768,7 @@ async function issueInvoice() {
   const totalCost = currentInvoiceItems.reduce((sum, item) => sum + ((item.costPrice || 0) * (item.quantity || 0)), 0);
 
   const invoice = {
-    id: generateId(), invoiceNumber, customerName, subject, invoiceDate, dueDate,
+    id: generateId(), invoiceNumber, customerName, honorific, subject, invoiceDate, dueDate,
     items: currentInvoiceItems.map(item => ({
       description: item.description, quantity: item.quantity,
       unit: item.unit, unitPrice: item.unitPrice, amount: item.amount,
@@ -866,7 +867,7 @@ function renderHistory(search = '') {
       <input type="checkbox" class="hist-check" value="${inv.id}" onchange="updateHistoryBulkBar()" onclick="event.stopPropagation()">
       <div style="flex:1;cursor:pointer;" onclick="showInvoiceDetail('${inv.id}')">
         <div class="hc-header">
-          <span class="hc-customer">${escapeHtml(inv.customerName)} 様</span>
+          <span class="hc-customer">${escapeHtml(inv.customerName)} ${escapeHtml(inv.honorific || '様')}</span>
           <span class="hc-date">${inv.invoiceDate}</span>
         </div>
         <div class="hc-subject">${escapeHtml(inv.subject)} (${inv.invoiceNumber})</div>
@@ -890,7 +891,7 @@ function showInvoiceDetail(id) {
 
   document.getElementById('invoice-detail-content').innerHTML = `
     <div class="detail-row"><div class="detail-label">請求書番号</div><div class="detail-value">${inv.invoiceNumber}</div></div>
-    <div class="detail-row"><div class="detail-label">宛先</div><div class="detail-value">${escapeHtml(inv.customerName)} 様</div></div>
+    <div class="detail-row"><div class="detail-label">宛先</div><div class="detail-value">${escapeHtml(inv.customerName)} ${escapeHtml(inv.honorific || '様')}</div></div>
     <div class="detail-row"><div class="detail-label">件名</div><div class="detail-value">${escapeHtml(inv.subject)}</div></div>
     <div class="detail-row"><div class="detail-label">請求日</div><div class="detail-value">${inv.invoiceDate}</div></div>
     <div class="detail-row"><div class="detail-label">入金期日</div><div class="detail-value">${inv.dueDate || '未設定'}</div></div>
@@ -920,7 +921,7 @@ function deleteInvoice() {
   if (!currentDetailInvoiceId) return;
   const inv = getInvoices().find(i => i.id === currentDetailInvoiceId);
   if (!inv) return;
-  const msg = `請求書「${inv.invoiceNumber}」（${inv.customerName} 様）を削除しますか？\n\nこの操作は取り消せません。`;
+  const msg = `請求書「${inv.invoiceNumber}」（${inv.customerName} ${inv.honorific || '様'}）を削除しますか？\n\nこの操作は取り消せません。`;
   if (!confirm(msg)) return;
   const invoices = getInvoices().filter(i => i.id !== currentDetailInvoiceId);
   setInvoices(invoices);

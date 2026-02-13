@@ -121,10 +121,16 @@
     <div class="form-row">
       <div class="form-group">
         <label>宛先（顧客名）</label>
-        <select class="form-control" id="inv-customer-select" onchange="onCustomerSelectChange()">
-          <option value="">-- 顧客を選択 --</option>
-          <option value="__new__">+ 新規顧客を入力</option>
-        </select>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <select class="form-control" id="inv-customer-select" onchange="onCustomerSelectChange()" style="flex:1;">
+            <option value="">-- 顧客を選択 --</option>
+            <option value="__new__">+ 新規顧客を入力</option>
+          </select>
+          <select class="form-control" id="inv-honorific" style="width:80px;">
+            <option value="様">様</option>
+            <option value="御中">御中</option>
+          </select>
+        </div>
         <input type="text" class="form-control" id="inv-customer-new" placeholder="新規顧客名を入力" style="display:none;margin-top:6px;">
       </div>
       <div class="form-group">

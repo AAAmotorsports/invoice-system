@@ -195,7 +195,8 @@ async function buildPDF(invoice, settings, tryJapanese) {
 
   // 宛先
   setFont('bold', 14);
-  doc.text((invoice.customerName || '') + ' \u69D8', marginLeft, y);
+  const honorific = invoice.honorific || '\u69D8';
+  doc.text((invoice.customerName || '') + ' ' + honorific, marginLeft, y);
 
   // 右側情報
   const rc = 130;
@@ -425,7 +426,8 @@ async function buildPDF(invoice, settings, tryJapanese) {
   }
 
   // 保存
-  const filename = (invoice.customerName || 'customer') + '\u69D8_' +
+  const fileHonorific = invoice.honorific || '\u69D8';
+  const filename = (invoice.customerName || 'customer') + fileHonorific + '_' +
     (invoice.subject || 'invoice') + '_\u8ACB\u6C42\u66F8_' +
     (invoice.invoiceNumber || 'draft') + '.pdf';
   doc.save(filename);
