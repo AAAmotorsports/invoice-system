@@ -176,14 +176,17 @@ function renderDashboard() {
   // 今月の売上
   const now = new Date();
   const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  const monthlyRevenue = invoices
-    .filter(inv => inv.invoiceDate && inv.invoiceDate.startsWith(thisMonth))
-    .reduce((sum, inv) => sum + (inv.total || 0), 0);
+  const monthInvoices = invoices.filter(inv => inv.invoiceDate && inv.invoiceDate.startsWith(thisMonth));
+  const monthlyRevenue = monthInvoices.reduce((sum, inv) => sum + (inv.total || 0), 0);
+  const monthlyCost = monthInvoices.reduce((sum, inv) => sum + (inv.totalCost || 0), 0);
+  const monthlyProfit = monthlyRevenue - monthlyCost;
 
   document.getElementById('dashboard-stats').innerHTML = `
     <div class="stat-card"><div class="stat-value">${totalInvoices}</div><div class="stat-label">発行済み請求書</div></div>
     <div class="stat-card"><div class="stat-value">${totalItems}</div><div class="stat-label">在庫商品数</div></div>
     <div class="stat-card"><div class="stat-value">${formatCurrency(monthlyRevenue)}</div><div class="stat-label">今月の売上</div></div>
+    <div class="stat-card"><div class="stat-value">${formatCurrency(monthlyCost)}</div><div class="stat-label">今月の仕入</div></div>
+    <div class="stat-card"><div class="stat-value">${formatCurrency(monthlyProfit)}</div><div class="stat-label">今月の粗利</div></div>
   `;
 
   // 月別売上履歴
@@ -191,11 +194,12 @@ function renderDashboard() {
   invoices.forEach(inv => {
     if (!inv.invoiceDate) return;
     const m = inv.invoiceDate.slice(0, 7);
-    if (!monthlyMap[m]) monthlyMap[m] = { count: 0, subtotal: 0, tax: 0, total: 0 };
+    if (!monthlyMap[m]) monthlyMap[m] = { count: 0, subtotal: 0, tax: 0, total: 0, cost: 0 };
     monthlyMap[m].count++;
     monthlyMap[m].subtotal += (inv.subtotal || 0);
     monthlyMap[m].tax += (inv.tax || 0);
     monthlyMap[m].total += (inv.total || 0);
+    monthlyMap[m].cost += (inv.totalCost || 0);
   });
   const monthlyEl = document.getElementById('monthly-sales-history');
   const monthKeys = Object.keys(monthlyMap).sort().reverse();
@@ -209,15 +213,18 @@ function renderDashboard() {
     function monthRow(m) {
       const d = monthlyMap[m];
       const isCurrent = m === thisMonth;
+      const profit = d.total - d.cost;
       return `<tr${isCurrent ? ' style="background:#e8f5e9;font-weight:bold;"' : ''}>
         <td>${monthLabel(m)}${isCurrent ? ' ★' : ''}</td>
         <td class="text-right">${d.count}</td>
         <td class="text-right">${formatCurrency(d.subtotal)}</td>
         <td class="text-right">${formatCurrency(d.tax)}</td>
-        <td class="text-right">${formatCurrency(d.total)}</td></tr>`;
+        <td class="text-right">${formatCurrency(d.total)}</td>
+        <td class="text-right">${formatCurrency(d.cost)}</td>
+        <td class="text-right">${formatCurrency(profit)}</td></tr>`;
     }
 
-    let html = '<div class="table-wrap"><table><thead><tr><th>年月</th><th class="text-right">件数</th><th class="text-right">小計</th><th class="text-right">消費税</th><th class="text-right">売上合計</th></tr></thead><tbody>';
+    let html = '<div class="table-wrap"><table><thead><tr><th>年月</th><th class="text-right">件数</th><th class="text-right">小計</th><th class="text-right">消費税</th><th class="text-right">売上合計</th><th class="text-right">仕入合計</th><th class="text-right">粗利</th></tr></thead><tbody>';
     html += recent6.map(m => monthRow(m)).join('');
     html += '</tbody></table></div>';
 
@@ -327,6 +334,7 @@ function renderInventory(search = '') {
       <td class="text-right">${formatNumber(item.quantity)}</td>
       <td>${escapeHtml(item.unit || '')}</td>
       <td class="text-right">${formatCurrency(item.unitPrice)}</td>
+      <td class="text-right">${formatCurrency(item.retailPrice || 0)}</td>
       <td class="text-center">
         <button class="btn btn-outline btn-sm" onclick="editItem('${item.id}')">編集</button>
         <button class="btn btn-danger btn-sm" onclick="deleteItem('${item.id}')">削除</button>
@@ -350,6 +358,7 @@ function showAddItemModal() {
   document.getElementById('item-qty').value = '0';
   document.getElementById('item-unit').value = '';
   document.getElementById('item-price').value = '0';
+  document.getElementById('item-retail-price').value = '0';
   openModal('modal-item');
 }
 
@@ -362,6 +371,7 @@ function editItem(id) {
   document.getElementById('item-qty').value = item.quantity;
   document.getElementById('item-unit').value = item.unit || '';
   document.getElementById('item-price').value = item.unitPrice;
+  document.getElementById('item-retail-price').value = item.retailPrice || 0;
   openModal('modal-item');
 }
 
@@ -371,16 +381,17 @@ function saveItem() {
   const quantity = parseInt(document.getElementById('item-qty').value, 10) || 0;
   const unit = document.getElementById('item-unit').value.trim();
   const unitPrice = parseInt(document.getElementById('item-price').value, 10) || 0;
+  const retailPrice = parseInt(document.getElementById('item-retail-price').value, 10) || 0;
 
   if (!name) { showToast('商品名を入力してください', 'error'); return; }
 
   const inventory = getInventory();
   if (id) {
     const idx = inventory.findIndex(i => i.id === id);
-    if (idx !== -1) inventory[idx] = { ...inventory[idx], name, quantity, unit, unitPrice };
+    if (idx !== -1) inventory[idx] = { ...inventory[idx], name, quantity, unit, unitPrice, retailPrice };
     showToast('商品を更新しました');
   } else {
-    inventory.push({ id: generateId(), name, quantity, unit, unitPrice });
+    inventory.push({ id: generateId(), name, quantity, unit, unitPrice, retailPrice });
     showToast('商品を追加しました');
   }
   setInventory(inventory);
@@ -442,16 +453,18 @@ function importCSV(event) {
       const name = cols[0].trim();
       const quantity = parseInt(cols[1], 10) || 0;
       const unitPrice = parseInt(cols[2], 10) || 0;
-      const unit = cols[3] ? cols[3].trim() : '';
+      const retailPrice = cols[3] ? (parseInt(cols[3], 10) || 0) : 0;
+      const unit = cols[4] ? cols[4].trim() : '';
       if (!name) continue;
 
       const existing = inventory.find(item => item.name === name);
       if (existing) {
         existing.quantity += quantity;
         if (unitPrice > 0) existing.unitPrice = unitPrice;
+        if (retailPrice > 0) existing.retailPrice = retailPrice;
         if (unit) existing.unit = unit;
       } else {
-        inventory.push({ id: generateId(), name, quantity, unit, unitPrice });
+        inventory.push({ id: generateId(), name, quantity, unit, unitPrice, retailPrice });
       }
       count++;
     }
@@ -520,7 +533,7 @@ function renderInventorySelectList(items) {
     <div style="display:flex;justify-content:space-between;align-items:center;padding:8px;border-bottom:1px solid var(--border);">
       <div>
         <div style="font-weight:500;">${escapeHtml(item.name)}</div>
-        <div style="font-size:0.8rem;color:var(--text-light);">在庫: ${item.quantity}${item.unit || ''} / 単価: ${formatCurrency(item.unitPrice)}</div>
+        <div style="font-size:0.8rem;color:var(--text-light);">在庫: ${item.quantity}${item.unit || ''} / 仕入: ${formatCurrency(item.unitPrice)} / 定価: ${formatCurrency(item.retailPrice || 0)}</div>
       </div>
       <button class="btn btn-primary btn-sm" onclick="addFromInventory('${item.id}')">追加</button>
     </div>
@@ -530,10 +543,12 @@ function renderInventorySelectList(items) {
 function addFromInventory(itemId) {
   const item = getInventory().find(i => i.id === itemId);
   if (!item) return;
+  const price = item.retailPrice || item.unitPrice;
   currentInvoiceItems.push({
     id: generateId(), description: item.name, quantity: 1,
-    unit: item.unit || '', unitPrice: item.unitPrice,
-    amount: item.unitPrice, inventoryItemId: item.id
+    unit: item.unit || '', unitPrice: price,
+    amount: price, inventoryItemId: item.id,
+    costPrice: item.unitPrice
   });
   renderInvoiceItems();
   closeModal('modal-select-inventory');
@@ -621,13 +636,16 @@ async function issueInvoice() {
   const total = subtotal + tax;
   const invoiceNumber = generateInvoiceNumber(invoiceDate);
 
+  const totalCost = currentInvoiceItems.reduce((sum, item) => sum + ((item.costPrice || 0) * (item.quantity || 0)), 0);
+
   const invoice = {
     id: generateId(), invoiceNumber, customerName, subject, invoiceDate, dueDate,
     items: currentInvoiceItems.map(item => ({
       description: item.description, quantity: item.quantity,
-      unit: item.unit, unitPrice: item.unitPrice, amount: item.amount
+      unit: item.unit, unitPrice: item.unitPrice, amount: item.amount,
+      costPrice: item.costPrice || 0
     })),
-    subtotal, taxRate, tax, total, notes, createdAt: Date.now()
+    subtotal, taxRate, tax, total, totalCost, notes, createdAt: Date.now()
   };
 
   // Save
@@ -642,18 +660,19 @@ async function issueInvoice() {
   const inventory = getInventory();
   currentInvoiceItems.forEach(item => {
     if (item.inventoryItemId) {
-      // 在庫から選んだ商品 → 数量を引く＋単価変更があれば在庫も更新
+      // 在庫から選んだ商品 → 数量を引く
       const invItem = inventory.find(i => i.id === item.inventoryItemId);
       if (invItem) {
         invItem.quantity = Math.max(0, invItem.quantity - item.quantity);
-        if (item.unitPrice > 0) invItem.unitPrice = item.unitPrice;
         if (item.unit) invItem.unit = item.unit;
+        // 定価を更新（請求書の単価 = 定価）
+        if (item.unitPrice > 0) invItem.retailPrice = item.unitPrice;
       }
     } else if (item.description.trim()) {
-      // 手入力の商品 → 在庫に自動追加（同名があれば単価を更新）
+      // 手入力の商品 → 在庫に自動追加
       const existing = inventory.find(i => i.name === item.description.trim());
       if (existing) {
-        if (item.unitPrice > 0) existing.unitPrice = item.unitPrice;
+        if (item.unitPrice > 0) existing.retailPrice = item.unitPrice;
         if (item.unit) existing.unit = item.unit;
       } else {
         inventory.push({
@@ -661,7 +680,8 @@ async function issueInvoice() {
           name: item.description.trim(),
           quantity: 0,
           unit: item.unit || '',
-          unitPrice: item.unitPrice || 0
+          unitPrice: 0,
+          retailPrice: item.unitPrice || 0
         });
       }
     }

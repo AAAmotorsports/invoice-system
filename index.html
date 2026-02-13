@@ -95,7 +95,8 @@
             <th>商品名</th>
             <th class="text-right">数量</th>
             <th>単位</th>
-            <th class="text-right">単価</th>
+            <th class="text-right">単価（仕入）</th>
+            <th class="text-right">定価</th>
             <th class="text-center">操作</th>
           </tr>
         </thead>
@@ -340,9 +341,15 @@
         <input type="text" class="form-control" id="item-unit" placeholder="個, set, 本 等">
       </div>
     </div>
-    <div class="form-group">
-      <label>単価（円）</label>
-      <input type="number" class="form-control" id="item-price" value="0" min="0">
+    <div class="form-row">
+      <div class="form-group">
+        <label>単価／仕入（円）</label>
+        <input type="number" class="form-control" id="item-price" value="0" min="0">
+      </div>
+      <div class="form-group">
+        <label>定価（円）</label>
+        <input type="number" class="form-control" id="item-retail-price" value="0" min="0">
+      </div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeModal('modal-item')">キャンセル</button>
