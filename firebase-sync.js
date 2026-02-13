@@ -43,11 +43,12 @@ function startRealtimeSync() {
       // リモートの方が新しければローカルを更新
       if (remoteSavedAt > localSavedAt) {
         isSyncingFromFirestore = true;
-        if (remoteData.inventory) localStorage.setItem(STORAGE_KEYS.inventory, JSON.stringify(remoteData.inventory));
-        if (remoteData.invoices) localStorage.setItem(STORAGE_KEYS.invoices, JSON.stringify(remoteData.invoices));
-        if (remoteData.settings) localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(remoteData.settings));
-        if (remoteData.customers) localStorage.setItem(STORAGE_KEYS.customers, JSON.stringify(remoteData.customers));
-        if (remoteData.purchases) localStorage.setItem(STORAGE_KEYS.purchases, JSON.stringify(remoteData.purchases));
+        // JSON文字列で保存されているデータをそのままlocalStorageへ
+        if (remoteData.inventory_json) localStorage.setItem(STORAGE_KEYS.inventory, remoteData.inventory_json);
+        if (remoteData.invoices_json) localStorage.setItem(STORAGE_KEYS.invoices, remoteData.invoices_json);
+        if (remoteData.settings_json) localStorage.setItem(STORAGE_KEYS.settings, remoteData.settings_json);
+        if (remoteData.customers_json) localStorage.setItem(STORAGE_KEYS.customers, remoteData.customers_json);
+        if (remoteData.purchases_json) localStorage.setItem(STORAGE_KEYS.purchases, remoteData.purchases_json);
         localStorage.setItem('invoice_sys_savedAt', remoteSavedAt);
         // オーバーレイを閉じる
         const overlay = document.getElementById('data-load-overlay');
@@ -79,18 +80,20 @@ function stopRealtimeSync() {
 }
 
 // --- localStorage → Firestore 同期 ---
+// ★ Firestoreはネストされたオブジェクト配列に制限があるため、
+//    各データをJSON文字列として保存することで回避
 async function pushToFirestore() {
   if (isSyncingFromFirestore) return;
 
   const savedAt = new Date().toISOString();
   const data = {
-    version: 3,
+    version: 4,
     savedAt: savedAt,
-    inventory: getInventory(),
-    invoices: getInvoices(),
-    settings: getSettings(),
-    customers: getCustomers(),
-    purchases: getPurchases()
+    inventory_json: JSON.stringify(getInventory()),
+    invoices_json: JSON.stringify(getInvoices()),
+    settings_json: JSON.stringify(getSettings()),
+    customers_json: JSON.stringify(getCustomers()),
+    purchases_json: JSON.stringify(getPurchases())
   };
 
   try {
@@ -140,11 +143,32 @@ async function initialSync() {
 
       if (remoteSavedAt > localSavedAt) {
         // リモートの方が新しい → ダウンロード
-        if (remoteData.inventory) localStorage.setItem(STORAGE_KEYS.inventory, JSON.stringify(remoteData.inventory));
-        if (remoteData.invoices) localStorage.setItem(STORAGE_KEYS.invoices, JSON.stringify(remoteData.invoices));
-        if (remoteData.settings) localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(remoteData.settings));
-        if (remoteData.customers) localStorage.setItem(STORAGE_KEYS.customers, JSON.stringify(remoteData.customers));
-        if (remoteData.purchases) localStorage.setItem(STORAGE_KEYS.purchases, JSON.stringify(remoteData.purchases));
+        // v4形式（JSON文字列）
+        if (remoteData.inventory_json) {
+          localStorage.setItem(STORAGE_KEYS.inventory, remoteData.inventory_json);
+        } else if (remoteData.inventory) {
+          localStorage.setItem(STORAGE_KEYS.inventory, JSON.stringify(remoteData.inventory));
+        }
+        if (remoteData.invoices_json) {
+          localStorage.setItem(STORAGE_KEYS.invoices, remoteData.invoices_json);
+        } else if (remoteData.invoices) {
+          localStorage.setItem(STORAGE_KEYS.invoices, JSON.stringify(remoteData.invoices));
+        }
+        if (remoteData.settings_json) {
+          localStorage.setItem(STORAGE_KEYS.settings, remoteData.settings_json);
+        } else if (remoteData.settings) {
+          localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(remoteData.settings));
+        }
+        if (remoteData.customers_json) {
+          localStorage.setItem(STORAGE_KEYS.customers, remoteData.customers_json);
+        } else if (remoteData.customers) {
+          localStorage.setItem(STORAGE_KEYS.customers, JSON.stringify(remoteData.customers));
+        }
+        if (remoteData.purchases_json) {
+          localStorage.setItem(STORAGE_KEYS.purchases, remoteData.purchases_json);
+        } else if (remoteData.purchases) {
+          localStorage.setItem(STORAGE_KEYS.purchases, JSON.stringify(remoteData.purchases));
+        }
         localStorage.setItem('invoice_sys_savedAt', remoteSavedAt);
         // オーバーレイを閉じる
         const overlay = document.getElementById('data-load-overlay');
