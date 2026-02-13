@@ -1461,9 +1461,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   renderDashboard();
   refreshCreatePage();
 
-  // Firebase同期開始
+  // Firebase同期開始（startRealtimeSyncでsyncEnabledをtrueにしてからinitialSync）
   if (typeof startRealtimeSync === 'function') {
-    await initialSync();
     startRealtimeSync();
+    await initialSync();
   }
 });

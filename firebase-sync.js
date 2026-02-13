@@ -22,10 +22,13 @@ const SYNC_DOC = db.collection('appData').doc('main');
 let isSyncingFromFirestore = false;
 let syncEnabled = false;
 let unsubscribeSnapshot = null;
+let lastPushedAt = ''; // 自分がpushしたタイムスタンプを記憶
 
 // --- Firestore → localStorage 同期 ---
 function startRealtimeSync() {
   if (unsubscribeSnapshot) return; // 既にリスニング中
+
+  syncEnabled = true; // ★ リスナー登録前に有効化
 
   unsubscribeSnapshot = SYNC_DOC.onSnapshot(
     (doc) => {
@@ -33,6 +36,9 @@ function startRealtimeSync() {
       const remoteData = doc.data();
       const localSavedAt = localStorage.getItem('invoice_sys_savedAt') || '';
       const remoteSavedAt = remoteData.savedAt || '';
+
+      // 自分がpushしたデータの場合はスキップ
+      if (remoteSavedAt === lastPushedAt) return;
 
       // リモートの方が新しければローカルを更新
       if (remoteSavedAt > localSavedAt) {
@@ -55,11 +61,11 @@ function startRealtimeSync() {
     },
     (error) => {
       console.error('Firestore リアルタイム同期エラー:', error);
-      showToast('同期エラーが発生しました', 'error');
+      // ネットワーク一時切断等は自動復帰するためステータスだけ更新
+      updateSyncStatus(false, true);
     }
   );
 
-  syncEnabled = true;
   updateSyncStatus(true);
 }
 
@@ -74,7 +80,7 @@ function stopRealtimeSync() {
 
 // --- localStorage → Firestore 同期 ---
 async function pushToFirestore() {
-  if (!syncEnabled || isSyncingFromFirestore) return;
+  if (isSyncingFromFirestore) return;
 
   const savedAt = new Date().toISOString();
   const data = {
@@ -89,6 +95,7 @@ async function pushToFirestore() {
 
   try {
     await SYNC_DOC.set(data);
+    lastPushedAt = savedAt; // 自分がpushしたタイムスタンプを記憶
     localStorage.setItem('invoice_sys_savedAt', savedAt);
     updateSyncStatus(true);
   } catch (error) {
