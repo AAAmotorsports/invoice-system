@@ -1,0 +1,176 @@
+{
+  "version": 2,
+  "savedAt": "2026-02-13T04:05:55.405Z",
+  "inventory": [
+    {
+      "id": "mlkd1mub00xij",
+      "name": "水温センサーM10",
+      "quantity": 2,
+      "unit": "個",
+      "unitPrice": 10400
+    },
+    {
+      "id": "mlkd1mubzgh0l",
+      "name": "水温延長ケーブル",
+      "quantity": 2,
+      "unit": "個",
+      "unitPrice": 2560
+    },
+    {
+      "id": "mlkd1mubwxg7m",
+      "name": "カートグローブ/K-ATTACK/赤-黒/サイズ #7",
+      "quantity": 1,
+      "unit": "組",
+      "unitPrice": 6955
+    },
+    {
+      "id": "mlkd1mub0u5gw",
+      "name": "カートグローブ/K-ATTACK/赤-黒/サイズ #4",
+      "quantity": 1,
+      "unit": "組",
+      "unitPrice": 6955
+    },
+    {
+      "id": "mlkd1mub08a4q",
+      "name": "エクステイル 09 Jrネックガード BLK",
+      "quantity": 1,
+      "unit": "個",
+      "unitPrice": 10500
+    },
+    {
+      "id": "mlkd1mubo132l",
+      "name": "エクステイル リブプロテクター ベストSTD/黒/M",
+      "quantity": 1,
+      "unit": "個",
+      "unitPrice": 20625
+    },
+    {
+      "id": "mlkd1mubgjkx4",
+      "name": "CW(ガデットレイン)",
+      "quantity": 8,
+      "unit": "セット",
+      "unitPrice": 0
+    },
+    {
+      "id": "mlkd1mub4l4ui",
+      "name": "C2",
+      "quantity": 11,
+      "unit": "セット",
+      "unitPrice": 29000
+    },
+    {
+      "id": "mlkd2m12vf6jz",
+      "name": "テスト商品",
+      "quantity": 0,
+      "unit": "",
+      "unitPrice": 1000
+    },
+    {
+      "id": "mlkd7iv59uaxm",
+      "name": "テスト商品２",
+      "quantity": 0,
+      "unit": "",
+      "unitPrice": 2000
+    }
+  ],
+  "invoices": [
+    {
+      "id": "mlkd2m11kwydk",
+      "invoiceNumber": "20260213001",
+      "customerName": "テスト顧客",
+      "subject": "",
+      "invoiceDate": "2026-02-13",
+      "dueDate": "",
+      "items": [
+        {
+          "description": "CW(ガデットレイン)",
+          "quantity": 1,
+          "unit": "セット",
+          "unitPrice": 29000,
+          "amount": 29000
+        },
+        {
+          "description": "テスト商品",
+          "quantity": 1,
+          "unit": "",
+          "unitPrice": 1000,
+          "amount": 1000
+        }
+      ],
+      "subtotal": 30000,
+      "taxRate": 0.1,
+      "tax": 3000,
+      "total": 33000,
+      "notes": "",
+      "createdAt": 1770955319557
+    },
+    {
+      "id": "mlkd7iv5f4l6q",
+      "invoiceNumber": "20260213002",
+      "customerName": "テスト顧客",
+      "subject": "",
+      "invoiceDate": "2026-02-13",
+      "dueDate": "",
+      "items": [
+        {
+          "description": "C2",
+          "quantity": 1,
+          "unit": "セット",
+          "unitPrice": 29000,
+          "amount": 29000
+        },
+        {
+          "description": "テスト商品２",
+          "quantity": 1,
+          "unit": "",
+          "unitPrice": 2000,
+          "amount": 2000
+        }
+      ],
+      "subtotal": 31000,
+      "taxRate": 0.1,
+      "tax": 3100,
+      "total": 34100,
+      "notes": "",
+      "createdAt": 1770955548737
+    }
+  ],
+  "settings": {
+    "companyName": "福岡キッズカートアカデミー",
+    "representativeName": "原野正明",
+    "postalCode": "818-0024",
+    "address": "福岡県筑紫野市大字原田１３３８",
+    "registrationNumber": "T7810928956182",
+    "bankAccounts": [
+      {
+        "id": "1",
+        "bankName": "福岡銀行",
+        "branchName": "筑紫支店",
+        "accountType": "普通",
+        "accountNumber": "0103993",
+        "accountHolder": "ﾊﾗﾉﾏｻｱｷ"
+      },
+      {
+        "id": "2",
+        "bankName": "西日本ｼﾃｨ銀行",
+        "branchName": "美しが丘出張所",
+        "accountType": "普通",
+        "accountNumber": "3015580",
+        "accountHolder": "ﾊﾗﾉﾏｻｱｷ"
+      },
+      {
+        "id": "3",
+        "bankName": "PayPay銀行",
+        "branchName": "ｽｽﾞﾒ支店 (002)",
+        "accountType": "普通",
+        "accountNumber": "3215096",
+        "accountHolder": "ﾌｸｵｶｷｯｽﾞｶ−ﾄｱｶﾃﾞﾐ−"
+      }
+    ],
+    "taxRate": 10,
+    "logoImage": ""
+  },
+  "customers": [
+    "テスト顧客"
+  ]
+}

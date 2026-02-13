@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#2c3e50">
+  <title>請求書発行システム</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- データ読込オーバーレイ（起動時） -->
+<div id="data-load-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:16px;padding:32px;max-width:360px;width:90%;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,0.3);">
+    <h2 style="margin:0 0 8px;">請求書発行システム</h2>
+    <p style="color:#666;margin:0 0 20px;font-size:0.9rem;">データファイルを読み込んで開始</p>
+    <label style="display:block;width:100%;padding:14px;font-size:1.1rem;font-weight:bold;background:#3498db;color:#fff;border:none;border-radius:10px;cursor:pointer;margin-bottom:10px;text-align:center;">
+      データ読込（data.json）
+      <input type="file" id="data-file-input" accept=".json,.JSON" onchange="loadDataFile(event)" style="display:none;">
+    </label>
+    <button onclick="skipDataLoad()" style="display:block;width:100%;padding:10px;font-size:0.9rem;background:none;border:1px solid #ccc;border-radius:10px;cursor:pointer;color:#666;">新規 / ブラウザ内データで開始</button>
+  </div>
+</div>
+
+<!-- Header -->
+<header class="app-header">
+  <div style="display:flex;align-items:center;justify-content:space-between;width:100%;">
+    <h1 style="margin:0;">請求書発行システム</h1>
+    <div style="display:flex;gap:6px;">
+      <label class="btn-header" style="display:inline-flex;align-items:center;cursor:pointer;margin:0;">
+        読込
+        <input type="file" id="data-file-input2" accept=".json,.JSON" onchange="loadDataFile(event)" style="display:none;">
+      </label>
+      <button onclick="saveDataFile()" class="btn-header btn-header-save" id="btn-save-data">保存</button>
+    </div>
+  </div>
+</header>
+
+<!-- Tab Navigation -->
+<nav class="tab-nav">
+  <button class="tab-btn active" data-tab="dashboard">ダッシュボード</button>
+  <button class="tab-btn" data-tab="inventory">在庫管理</button>
+  <button class="tab-btn" data-tab="create">請求書作成</button>
+  <button class="tab-btn" data-tab="history">請求書履歴</button>
+  <button class="tab-btn" data-tab="sales">販売履歴</button>
+  <button class="tab-btn" data-tab="settings">設定</button>
+  <button class="tab-btn" data-tab="backup">バックアップ</button>
+</nav>
+
+<!-- ===== Dashboard ===== -->
+<section id="page-dashboard" class="page active">
+  <div class="stats-grid" id="dashboard-stats"></div>
+  <div class="card">
+    <h2>月別売上履歴</h2>
+    <div id="monthly-sales-history"></div>
+  </div>
+  <div class="card">
+    <h2>最近の請求書</h2>
+    <div id="recent-invoices"></div>
+  </div>
+  <div class="card">
+    <h2>在庫アラート</h2>
+    <div id="stock-alerts"></div>
+  </div>
+</section>
+
+<!-- ===== Inventory ===== -->
+<section id="page-inventory" class="page">
+  <div class="card">
+    <h2>在庫管理</h2>
+    <div class="toolbar">
+      <input type="text" class="form-control search-input" id="inventory-search" placeholder="商品名で検索...">
+      <button class="btn btn-primary" onclick="showAddItemModal()">+ 商品追加</button>
+      <div class="file-input-wrap">
+        <button class="btn btn-outline">CSVインポート</button>
+        <input type="file" accept=".csv" onchange="importCSV(event)">
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>商品名</th>
+            <th class="text-right">数量</th>
+            <th>単位</th>
+            <th class="text-right">単価</th>
+            <th class="text-center">操作</th>
+          </tr>
+        </thead>
+        <tbody id="inventory-table"></tbody>
+      </table>
+    </div>
+    <div id="inventory-empty" class="empty-state" style="display:none;">
+      <div class="empty-icon">📦</div>
+      <p>在庫がありません。商品を追加するかCSVをインポートしてください。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Invoice Create ===== -->
+<section id="page-create" class="page">
+  <div class="card">
+    <h2>請求書作成</h2>
+    <div class="form-row">
+      <div class="form-group">
+        <label>宛先（顧客名）</label>
+        <select class="form-control" id="inv-customer-select" onchange="onCustomerSelectChange()">
+          <option value="">-- 顧客を選択 --</option>
+          <option value="__new__">+ 新規顧客を入力</option>
+        </select>
+        <input type="text" class="form-control" id="inv-customer-new" placeholder="新規顧客名を入力" style="display:none;margin-top:6px;">
+      </div>
+      <div class="form-group">
+        <label>件名</label>
+        <input type="text" class="form-control" id="inv-subject" placeholder="例: 瑞浪遠征費用">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>請求日</label>
+        <input type="date" class="form-control" id="inv-date">
+      </div>
+      <div class="form-group">
+        <label>入金期日</label>
+        <input type="date" class="form-control" id="inv-due-date">
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>明細</h3>
+    <div class="toolbar">
+      <button class="btn btn-outline btn-sm" onclick="showSelectFromInventory()">在庫から追加</button>
+      <button class="btn btn-outline btn-sm" onclick="addManualItem()">手動で追加</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>摘要</th>
+            <th class="text-right" style="width:80px;">数量</th>
+            <th style="width:60px;">単位</th>
+            <th class="text-right" style="width:100px;">単価</th>
+            <th class="text-right" style="width:110px;">明細金額</th>
+            <th class="text-center" style="width:40px;"></th>
+          </tr>
+        </thead>
+        <tbody id="invoice-items"></tbody>
+      </table>
+    </div>
+    <div id="items-empty" class="empty-state">
+      <p>明細を追加してください</p>
+    </div>
+
+    <div class="summary-box">
+      <div class="summary-row">
+        <span>小計</span>
+        <span id="inv-subtotal">0円</span>
+      </div>
+      <div class="summary-row">
+        <span>消費税 (<span id="inv-tax-rate-display">10</span>%)</span>
+        <span id="inv-tax">0円</span>
+      </div>
+      <div class="summary-row total">
+        <span>請求金額</span>
+        <span id="inv-total">0円</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="form-group">
+      <label>備考</label>
+      <textarea class="form-control" id="inv-notes" placeholder="備考を入力..."></textarea>
+    </div>
+  </div>
+
+  <div style="display:flex; gap:8px; margin-top:12px;">
+    <button class="btn btn-primary btn-block" onclick="issueInvoice()">請求書を発行（PDF生成）</button>
+  </div>
+</section>
+
+<!-- ===== History ===== -->
+<section id="page-history" class="page">
+  <div class="card">
+    <h2>請求書履歴</h2>
+    <div class="toolbar">
+      <input type="text" class="form-control search-input" id="history-search" placeholder="顧客名・件名で検索...">
+    </div>
+    <div id="history-list"></div>
+    <div id="history-empty" class="empty-state" style="display:none;">
+      <div class="empty-icon">📄</div>
+      <p>発行済みの請求書はありません。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Sales History (販売履歴) ===== -->
+<section id="page-sales" class="page">
+  <div class="card">
+    <h2>販売履歴・売上分析</h2>
+    <div class="toolbar" style="align-items:flex-end;">
+      <div class="form-group" style="margin-bottom:0;flex:1;min-width:140px;">
+        <label>顧客フィルタ</label>
+        <select class="form-control" id="sales-customer-filter" onchange="onSalesFilterChange()">
+          <option value="">全ての顧客</option>
+        </select>
+      </div>
+      <div class="form-group" style="margin-bottom:0;min-width:130px;">
+        <label>期間（開始）</label>
+        <input type="date" class="form-control" id="sales-date-from" onchange="onSalesFilterChange()">
+      </div>
+      <div class="form-group" style="margin-bottom:0;min-width:130px;">
+        <label>期間（終了）</label>
+        <input type="date" class="form-control" id="sales-date-to" onchange="onSalesFilterChange()">
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+      <button class="btn btn-success" onclick="exportFreeeCSV()">Freee用CSV出力</button>
+    </div>
+    <div id="sales-summary"></div>
+  </div>
+  <div id="sales-breakdown"></div>
+  <div class="card">
+    <h3>取引一覧</h3>
+    <div id="sales-list"></div>
+  </div>
+</section>
+
+<!-- ===== Settings ===== -->
+<section id="page-settings" class="page">
+  <div class="card">
+    <h2>発行者情報</h2>
+    <div class="form-group">
+      <label>会社名 / 屋号</label>
+      <input type="text" class="form-control" id="set-company" placeholder="福岡キッズカートアカデミー">
+    </div>
+    <div class="form-group">
+      <label>代表者名</label>
+      <input type="text" class="form-control" id="set-representative" placeholder="原野正明">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>郵便番号</label>
+        <input type="text" class="form-control" id="set-postal" placeholder="818-0024">
+      </div>
+      <div class="form-group">
+        <label>登録番号</label>
+        <input type="text" class="form-control" id="set-registration" placeholder="T7810928956182">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>住所</label>
+      <input type="text" class="form-control" id="set-address" placeholder="福岡県筑紫野市大字原田１３３８">
+    </div>
+    <div class="form-group">
+      <label>消費税率 (%)</label>
+      <input type="number" class="form-control" id="set-tax-rate" value="10" min="0" max="100" step="1">
+    </div>
+    <div class="form-group">
+      <label>ロゴ画像</label>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <div class="file-input-wrap">
+          <button class="btn btn-outline btn-sm">画像を選択</button>
+          <input type="file" accept="image/*" onchange="uploadLogo(event)">
+        </div>
+        <span id="logo-preview-text" style="font-size:0.85rem;color:var(--text-light);">未設定</span>
+      </div>
+      <img id="logo-preview" style="max-width:120px;max-height:60px;margin-top:8px;display:none;">
+    </div>
+    <button class="btn btn-primary" onclick="saveSettings()">設定を保存</button>
+  </div>
+
+  <div class="card">
+    <h2>振込先情報</h2>
+    <div id="bank-accounts-list"></div>
+    <button class="btn btn-outline" onclick="showAddBankModal()" style="margin-top:8px;">+ 振込先を追加</button>
+  </div>
+
+  <div class="card">
+    <h2>顧客リスト</h2>
+    <p style="font-size:0.85rem;color:var(--text-light);margin-bottom:10px;">請求書発行時に自動登録されます。手動追加・削除も可能です。</p>
+    <div id="customer-list"></div>
+    <button class="btn btn-outline" onclick="addCustomerManual()" style="margin-top:8px;">+ 顧客を手動追加</button>
+  </div>
+</section>
+
+<!-- ===== Backup ===== -->
+<section id="page-backup" class="page">
+  <div class="card">
+    <h2>バックアップ・復元</h2>
+    <p style="font-size:0.9rem;color:var(--text-light);margin-bottom:16px;">
+      全データ（在庫・請求書・設定・顧客）をJSONファイルとしてエクスポート/インポートできます。<br>
+      iCloud Driveに保存することで他の端末と共有できます。
+    </p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="btn btn-primary" onclick="exportBackup()">バックアップをエクスポート</button>
+      <div class="file-input-wrap">
+        <button class="btn btn-outline">バックアップを復元</button>
+        <input type="file" accept=".json" onchange="importBackup(event)">
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Modals ===== -->
+
+<!-- Add/Edit Inventory Item Modal -->
+<div class="modal-overlay" id="modal-item">
+  <div class="modal">
+    <h3 id="modal-item-title">商品を追加</h3>
+    <input type="hidden" id="edit-item-id">
+    <div class="form-group">
+      <label>商品名</label>
+      <input type="text" class="form-control" id="item-name" placeholder="商品名">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>数量</label>
+        <input type="number" class="form-control" id="item-qty" value="0" min="0" step="1">
+      </div>
+      <div class="form-group">
+        <label>単位</label>
+        <input type="text" class="form-control" id="item-unit" placeholder="個, set, 本 等">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>単価（円）</label>
+      <input type="number" class="form-control" id="item-price" value="0" min="0">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('modal-item')">キャンセル</button>
+      <button class="btn btn-primary" onclick="saveItem()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Select from Inventory Modal -->
+<div class="modal-overlay" id="modal-select-inventory">
+  <div class="modal">
+    <h3>在庫から商品を選択</h3>
+    <input type="text" class="form-control" id="select-inv-search" placeholder="商品名で検索..." oninput="filterInventorySelect()" style="margin-bottom:12px;">
+    <div id="select-inv-list" style="max-height:300px;overflow-y:auto;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('modal-select-inventory')">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add Bank Account Modal -->
+<div class="modal-overlay" id="modal-bank">
+  <div class="modal">
+    <h3 id="modal-bank-title">振込先を追加</h3>
+    <input type="hidden" id="edit-bank-id">
+    <div class="form-group">
+      <label>銀行名</label>
+      <input type="text" class="form-control" id="bank-name" placeholder="福岡銀行">
+    </div>
+    <div class="form-group">
+      <label>支店名</label>
+      <input type="text" class="form-control" id="bank-branch" placeholder="筑紫支店">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>口座種別</label>
+        <select class="form-control" id="bank-type">
+          <option value="普通">普通</option>
+          <option value="当座">当座</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>口座番号</label>
+        <input type="text" class="form-control" id="bank-number" placeholder="0103993">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>口座名義</label>
+      <input type="text" class="form-control" id="bank-holder" placeholder="ﾊﾗﾉﾏｻｱｷ">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('modal-bank')">キャンセル</button>
+      <button class="btn btn-primary" onclick="saveBank()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Invoice Detail Modal -->
+<div class="modal-overlay" id="modal-invoice-detail">
+  <div class="modal" style="max-width:600px;">
+    <h3>請求書詳細</h3>
+    <div id="invoice-detail-content"></div>
+    <div class="modal-actions" style="justify-content:space-between;">
+      <button class="btn btn-danger" onclick="deleteInvoice()">削除</button>
+      <div>
+        <button class="btn btn-outline" onclick="closeModal('modal-invoice-detail')">閉じる</button>
+        <button class="btn btn-primary" id="btn-reissue" onclick="reissueInvoice()">再発行（PDF）</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast Container -->
+<div class="toast-container" id="toast-container"></div>
+
+<script src="jspdf.umd.min.js"></script>
+<script src="app.js"></script>
+<script src="pdf-generator.js"></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+</script>
+</body>
+</html>
