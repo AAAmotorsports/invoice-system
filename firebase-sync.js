@@ -43,16 +43,9 @@ function startRealtimeSync() {
       // リモートの方が新しければローカルを更新
       if (remoteSavedAt > localSavedAt) {
         isSyncingFromFirestore = true;
-        // JSON文字列で保存されているデータをそのままlocalStorageへ
         if (remoteData.inventory_json) localStorage.setItem(STORAGE_KEYS.inventory, remoteData.inventory_json);
         if (remoteData.invoices_json) localStorage.setItem(STORAGE_KEYS.invoices, remoteData.invoices_json);
-        if (remoteData.settings_json) {
-          // ローカルのlogoImageを保持（同期対象外のため）
-          const localSettings = getSettings();
-          const remoteSettings = JSON.parse(remoteData.settings_json);
-          if (localSettings.logoImage) remoteSettings.logoImage = localSettings.logoImage;
-          localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(remoteSettings));
-        }
+        if (remoteData.settings_json) localStorage.setItem(STORAGE_KEYS.settings, remoteData.settings_json);
         if (remoteData.customers_json) localStorage.setItem(STORAGE_KEYS.customers, remoteData.customers_json);
         if (remoteData.purchases_json) localStorage.setItem(STORAGE_KEYS.purchases, remoteData.purchases_json);
         localStorage.setItem('invoice_sys_savedAt', remoteSavedAt);
@@ -68,7 +61,6 @@ function startRealtimeSync() {
     },
     (error) => {
       console.error('Firestore リアルタイム同期エラー:', error);
-      // ネットワーク一時切断等は自動復帰するためステータスだけ更新
       updateSyncStatus(false, true);
     }
   );
@@ -88,13 +80,9 @@ function stopRealtimeSync() {
 // --- localStorage → Firestore 同期 ---
 // ★ Firestoreはネストされたオブジェクト配列に制限があるため、
 //    各データをJSON文字列として保存することで回避
+// ★ logoImageはアップロード時に圧縮済み（最大300px・JPEG）なので同期OK
 async function pushToFirestore() {
   if (isSyncingFromFirestore) return;
-
-  // settingsからlogoImage（Base64で巨大）を除外して同期
-  const settings = getSettings();
-  const settingsForSync = { ...settings };
-  delete settingsForSync.logoImage;
 
   const savedAt = new Date().toISOString();
   const data = {
@@ -102,14 +90,14 @@ async function pushToFirestore() {
     savedAt: savedAt,
     inventory_json: JSON.stringify(getInventory()),
     invoices_json: JSON.stringify(getInvoices()),
-    settings_json: JSON.stringify(settingsForSync),
+    settings_json: JSON.stringify(getSettings()),
     customers_json: JSON.stringify(getCustomers()),
     purchases_json: JSON.stringify(getPurchases())
   };
 
   try {
     await SYNC_DOC.set(data);
-    lastPushedAt = savedAt; // 自分がpushしたタイムスタンプを記憶
+    lastPushedAt = savedAt;
     localStorage.setItem('invoice_sys_savedAt', savedAt);
     updateSyncStatus(true);
   } catch (error) {
@@ -126,7 +114,7 @@ function debouncedPush() {
   if (pushTimer) clearTimeout(pushTimer);
   pushTimer = setTimeout(() => {
     pushToFirestore();
-  }, 1500); // 1.5秒待って書き込み
+  }, 1500);
 }
 
 // --- 同期ステータス表示 ---
@@ -143,7 +131,7 @@ function updateSyncStatus(connected, error = false) {
   }
 }
 
-// --- 初回同期（ローカルデータをFirestoreにアップロード or Firestoreからダウンロード）---
+// --- 初回同期 ---
 async function initialSync() {
   try {
     const doc = await SYNC_DOC.get();
@@ -153,8 +141,7 @@ async function initialSync() {
       const remoteSavedAt = remoteData.savedAt || '';
 
       if (remoteSavedAt > localSavedAt) {
-        // リモートの方が新しい → ダウンロード
-        // v4形式（JSON文字列）
+        // リモートの方が新しい → ダウンロード（v4 JSON文字列 / v3 オブジェクト 両対応）
         if (remoteData.inventory_json) {
           localStorage.setItem(STORAGE_KEYS.inventory, remoteData.inventory_json);
         } else if (remoteData.inventory) {
@@ -166,16 +153,9 @@ async function initialSync() {
           localStorage.setItem(STORAGE_KEYS.invoices, JSON.stringify(remoteData.invoices));
         }
         if (remoteData.settings_json) {
-          // ローカルのlogoImageを保持（同期対象外のため）
-          const localSettings = getSettings();
-          const remoteSettings = JSON.parse(remoteData.settings_json);
-          if (localSettings.logoImage) remoteSettings.logoImage = localSettings.logoImage;
-          localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(remoteSettings));
+          localStorage.setItem(STORAGE_KEYS.settings, remoteData.settings_json);
         } else if (remoteData.settings) {
-          const localSettings = getSettings();
-          const rs = remoteData.settings;
-          if (localSettings.logoImage) rs.logoImage = localSettings.logoImage;
-          localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(rs));
+          localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(remoteData.settings));
         }
         if (remoteData.customers_json) {
           localStorage.setItem(STORAGE_KEYS.customers, remoteData.customers_json);
@@ -188,18 +168,15 @@ async function initialSync() {
           localStorage.setItem(STORAGE_KEYS.purchases, JSON.stringify(remoteData.purchases));
         }
         localStorage.setItem('invoice_sys_savedAt', remoteSavedAt);
-        // オーバーレイを閉じる
         const overlay = document.getElementById('data-load-overlay');
         if (overlay) overlay.style.display = 'none';
         renderDashboard();
         refreshCreatePage();
         showToast('クラウドからデータを復元しました');
       } else {
-        // ローカルの方が新しい → アップロード
         await pushToFirestore();
       }
     } else {
-      // Firestoreにデータがない → ローカルデータをアップロード
       const hasLocalData = loadData(STORAGE_KEYS.inventory) || loadData(STORAGE_KEYS.invoices);
       if (hasLocalData) {
         await pushToFirestore();

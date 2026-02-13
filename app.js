@@ -1105,13 +1105,31 @@ function uploadLogo(event) {
   if (!file) return;
   const reader = new FileReader();
   reader.onload = function(e) {
-    const s = getSettings();
-    s.logoImage = e.target.result;
-    setSettings(s);
-    document.getElementById('logo-preview').src = e.target.result;
-    document.getElementById('logo-preview').style.display = 'block';
-    document.getElementById('logo-preview-text').textContent = '設定済み';
-    showToast('ロゴを設定しました');
+    // 画像を圧縮・リサイズ（最大300px、JPEG品質0.7）
+    const img = new Image();
+    img.onload = function() {
+      const MAX_SIZE = 300;
+      let w = img.width, h = img.height;
+      if (w > MAX_SIZE || h > MAX_SIZE) {
+        if (w > h) { h = Math.round(h * MAX_SIZE / w); w = MAX_SIZE; }
+        else { w = Math.round(w * MAX_SIZE / h); h = MAX_SIZE; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      const compressed = canvas.toDataURL('image/jpeg', 0.7);
+
+      const s = getSettings();
+      s.logoImage = compressed;
+      setSettings(s);
+      document.getElementById('logo-preview').src = compressed;
+      document.getElementById('logo-preview').style.display = 'block';
+      document.getElementById('logo-preview-text').textContent = '設定済み';
+      showToast('ロゴを設定しました');
+    };
+    img.src = e.target.result;
   };
   reader.readAsDataURL(file);
 }
@@ -1456,6 +1474,28 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (hasData) {
     const overlay = document.getElementById('data-load-overlay');
     if (overlay) overlay.style.display = 'none';
+  }
+
+  // 既存のlogoImageが大きすぎる場合、自動圧縮（Firestore 1MBフィールド制限対策）
+  const currentSettings = getSettings();
+  if (currentSettings.logoImage && currentSettings.logoImage.length > 100000) {
+    const img = new Image();
+    img.onload = function() {
+      const MAX_SIZE = 300;
+      let w = img.width, h = img.height;
+      if (w > MAX_SIZE || h > MAX_SIZE) {
+        if (w > h) { h = Math.round(h * MAX_SIZE / w); w = MAX_SIZE; }
+        else { w = Math.round(w * MAX_SIZE / h); h = MAX_SIZE; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      currentSettings.logoImage = canvas.toDataURL('image/jpeg', 0.7);
+      saveData(STORAGE_KEYS.settings, currentSettings);
+      console.log('ロゴ画像を自動圧縮しました');
+    };
+    img.src = currentSettings.logoImage;
   }
 
   renderDashboard();
