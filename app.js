@@ -971,6 +971,165 @@ async function reissueInvoice() {
 }
 
 // ===================================================
+// INVOICE EDIT (請求書修正)
+// ===================================================
+let editInvoiceItems = [];
+
+function startEditInvoice() {
+  if (!currentDetailInvoiceId) return;
+  const inv = getInvoices().find(i => i.id === currentDetailInvoiceId);
+  if (!inv) return;
+
+  document.getElementById('edit-invoice-id').value = inv.id;
+  document.getElementById('edit-inv-customer').value = inv.customerName || '';
+  document.getElementById('edit-inv-honorific').value = inv.honorific || '様';
+  document.getElementById('edit-inv-subject').value = inv.subject || '';
+  document.getElementById('edit-inv-date').value = inv.invoiceDate || '';
+  document.getElementById('edit-inv-due-date').value = inv.dueDate || '';
+  document.getElementById('edit-inv-notes').value = inv.notes || '';
+
+  editInvoiceItems = (inv.items || []).map(item => ({
+    description: item.description || '',
+    quantity: item.quantity || 0,
+    unit: item.unit || '',
+    unitPrice: item.unitPrice || 0,
+    amount: item.amount || 0,
+    costPrice: item.costPrice || 0
+  }));
+
+  renderEditInvoiceItems();
+  closeModal('modal-invoice-detail');
+  openModal('modal-invoice-edit');
+}
+
+function renderEditInvoiceItems() {
+  const tbody = document.getElementById('edit-invoice-items');
+  tbody.innerHTML = editInvoiceItems.map((item, idx) => `
+    <tr>
+      <td><input type="text" value="${escapeAttr(item.description)}" onchange="updateEditItemField(${idx},'description',this.value)"></td>
+      <td><input type="number" value="${item.quantity}" min="0" onchange="updateEditItemField(${idx},'quantity',this.value)"></td>
+      <td><input type="text" value="${escapeAttr(item.unit)}" style="width:50px;" onchange="updateEditItemField(${idx},'unit',this.value)"></td>
+      <td><input type="number" value="${item.unitPrice}" min="0" onchange="updateEditItemField(${idx},'unitPrice',this.value)"></td>
+      <td class="text-right">${formatCurrency(item.amount)}</td>
+      <td class="text-center"><button class="btn btn-danger btn-sm" onclick="removeEditItem(${idx})">×</button></td>
+    </tr>
+  `).join('');
+  updateEditInvoiceTotals();
+}
+
+function updateEditItemField(idx, field, value) {
+  if (field === 'quantity' || field === 'unitPrice') value = parseInt(value, 10) || 0;
+  editInvoiceItems[idx][field] = value;
+  editInvoiceItems[idx].amount = (editInvoiceItems[idx].quantity || 0) * (editInvoiceItems[idx].unitPrice || 0);
+  renderEditInvoiceItems();
+}
+
+function removeEditItem(idx) {
+  editInvoiceItems.splice(idx, 1);
+  renderEditInvoiceItems();
+}
+
+function addEditInvoiceItem() {
+  editInvoiceItems.push({ description: '', quantity: 1, unit: '', unitPrice: 0, amount: 0, costPrice: 0 });
+  renderEditInvoiceItems();
+}
+
+function updateEditInvoiceTotals() {
+  const settings = getSettings();
+  const taxRate = (settings.taxRate || 10) / 100;
+  const subtotal = editInvoiceItems.reduce((sum, item) => sum + (item.amount || 0), 0);
+  const tax = Math.floor(subtotal * taxRate);
+  const total = subtotal + tax;
+  document.getElementById('edit-inv-subtotal').textContent = formatCurrency(subtotal);
+  document.getElementById('edit-inv-tax').textContent = formatCurrency(tax);
+  document.getElementById('edit-inv-total').textContent = formatCurrency(total);
+}
+
+function saveEditedInvoice() {
+  const id = document.getElementById('edit-invoice-id').value;
+  const customerName = document.getElementById('edit-inv-customer').value.trim();
+  const honorific = document.getElementById('edit-inv-honorific').value;
+  const subject = document.getElementById('edit-inv-subject').value.trim();
+  const invoiceDate = document.getElementById('edit-inv-date').value;
+  const dueDate = document.getElementById('edit-inv-due-date').value;
+  const notes = document.getElementById('edit-inv-notes').value.trim();
+
+  if (!customerName) { showToast('顧客名を入力してください', 'error'); return; }
+  if (!invoiceDate) { showToast('請求日を入力してください', 'error'); return; }
+  if (editInvoiceItems.length === 0) { showToast('明細を追加してください', 'error'); return; }
+
+  const settings = getSettings();
+  const taxRate = (settings.taxRate || 10) / 100;
+  const subtotal = editInvoiceItems.reduce((sum, item) => sum + (item.amount || 0), 0);
+  const tax = Math.floor(subtotal * taxRate);
+  const total = subtotal + tax;
+  const totalCost = editInvoiceItems.reduce((sum, item) => sum + ((item.costPrice || 0) * (item.quantity || 0)), 0);
+
+  const invoices = getInvoices();
+  const idx = invoices.findIndex(i => i.id === id);
+  if (idx === -1) { showToast('請求書が見つかりません', 'error'); return; }
+
+  invoices[idx] = {
+    ...invoices[idx],
+    customerName, honorific, subject, invoiceDate, dueDate, notes,
+    items: editInvoiceItems.map(item => ({
+      description: item.description, quantity: item.quantity,
+      unit: item.unit, unitPrice: item.unitPrice, amount: item.amount,
+      costPrice: item.costPrice || 0
+    })),
+    subtotal, taxRate, tax, total, totalCost
+  };
+
+  setInvoices(invoices);
+  addCustomerIfNew(customerName);
+  closeModal('modal-invoice-edit');
+  renderHistory();
+  renderSalesHistory();
+  showToast('請求書を修正しました');
+}
+
+// ===================================================
+// STOCK LOG (入庫ログ)
+// ===================================================
+function showStockLog() {
+  renderStockLog();
+  openModal('modal-stock-log');
+}
+
+function renderStockLog() {
+  const purchases = getPurchases();
+  const search = (document.getElementById('stock-log-search') || {}).value || '';
+
+  let filtered = purchases.slice();
+  if (search) {
+    filtered = filtered.filter(p => p.itemName.toLowerCase().includes(search.toLowerCase()));
+  }
+
+  // 新しい順
+  filtered.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+  const tbody = document.getElementById('stock-log-table');
+  const emptyEl = document.getElementById('stock-log-empty');
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = '';
+    emptyEl.style.display = 'block';
+    return;
+  }
+  emptyEl.style.display = 'none';
+
+  tbody.innerHTML = filtered.map(p => `
+    <tr>
+      <td>${escapeHtml(p.date || '')}</td>
+      <td>${escapeHtml(p.itemName || '')}</td>
+      <td class="text-right">${formatNumber(p.quantity)}</td>
+      <td class="text-right">${formatCurrency(p.unitPrice)}</td>
+      <td class="text-right">${formatCurrency(p.amount)}</td>
+    </tr>
+  `).join('');
+}
+
+// ===================================================
 // SALES HISTORY (販売履歴 - 全体 + 顧客別)
 // ===================================================
 function renderSalesHistory() {

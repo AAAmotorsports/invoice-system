@@ -81,6 +81,7 @@
         <option value="">全カテゴリ</option>
       </select>
       <button class="btn btn-primary" onclick="showAddItemModal()">+ 商品追加</button>
+      <button class="btn btn-outline" onclick="showStockLog()">入庫ログ</button>
       <div class="file-input-wrap">
         <button class="btn btn-outline">CSVインポート</button>
         <input type="file" accept=".csv" onchange="importCSV(event)">
@@ -434,10 +435,105 @@
     <div id="invoice-detail-content"></div>
     <div class="modal-actions" style="justify-content:space-between;">
       <button class="btn btn-danger" onclick="deleteInvoice()">削除</button>
-      <div>
+      <div style="display:flex;gap:6px;">
         <button class="btn btn-outline" onclick="closeModal('modal-invoice-detail')">閉じる</button>
+        <button class="btn btn-outline" onclick="startEditInvoice()">修正</button>
         <button class="btn btn-primary" id="btn-reissue" onclick="reissueInvoice()">再発行（PDF）</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Invoice Edit Modal -->
+<div class="modal-overlay" id="modal-invoice-edit">
+  <div class="modal" style="max-width:650px;max-height:90vh;overflow-y:auto;">
+    <h3>請求書を修正</h3>
+    <input type="hidden" id="edit-invoice-id">
+    <div class="form-row">
+      <div class="form-group">
+        <label>宛先（顧客名）</label>
+        <div style="display:flex;gap:8px;">
+          <input type="text" class="form-control" id="edit-inv-customer" style="flex:1;">
+          <select class="form-control" id="edit-inv-honorific" style="width:80px;">
+            <option value="様">様</option>
+            <option value="御中">御中</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>件名</label>
+        <input type="text" class="form-control" id="edit-inv-subject">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>請求日</label>
+        <input type="date" class="form-control" id="edit-inv-date">
+      </div>
+      <div class="form-group">
+        <label>入金期日</label>
+        <input type="date" class="form-control" id="edit-inv-due-date">
+      </div>
+    </div>
+    <h4 style="margin-top:12px;">明細</h4>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>摘要</th>
+            <th class="text-right" style="width:70px;">数量</th>
+            <th style="width:50px;">単位</th>
+            <th class="text-right" style="width:90px;">単価</th>
+            <th class="text-right" style="width:100px;">金額</th>
+            <th style="width:36px;"></th>
+          </tr>
+        </thead>
+        <tbody id="edit-invoice-items"></tbody>
+      </table>
+    </div>
+    <button class="btn btn-outline btn-sm" onclick="addEditInvoiceItem()" style="margin-top:6px;">+ 明細追加</button>
+    <div class="summary-box" style="margin-top:12px;">
+      <div class="summary-row"><span>小計</span><span id="edit-inv-subtotal">0円</span></div>
+      <div class="summary-row"><span>消費税</span><span id="edit-inv-tax">0円</span></div>
+      <div class="summary-row total"><span>請求金額</span><span id="edit-inv-total">0円</span></div>
+    </div>
+    <div class="form-group" style="margin-top:12px;">
+      <label>備考</label>
+      <textarea class="form-control" id="edit-inv-notes"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('modal-invoice-edit')">キャンセル</button>
+      <button class="btn btn-primary" onclick="saveEditedInvoice()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Stock Log Modal (入庫ログ) -->
+<div class="modal-overlay" id="modal-stock-log">
+  <div class="modal" style="max-width:650px;max-height:85vh;overflow-y:auto;">
+    <h3>入庫ログ（仕入れ履歴）</h3>
+    <div class="toolbar" style="margin-bottom:8px;">
+      <input type="text" class="form-control search-input" id="stock-log-search" placeholder="商品名で検索..." oninput="renderStockLog()">
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>日付</th>
+            <th>商品名</th>
+            <th class="text-right">数量</th>
+            <th class="text-right">仕入単価</th>
+            <th class="text-right">金額</th>
+          </tr>
+        </thead>
+        <tbody id="stock-log-table"></tbody>
+      </table>
+    </div>
+    <div id="stock-log-empty" class="empty-state" style="display:none;">
+      <p>入庫ログがありません</p>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('modal-stock-log')">閉じる</button>
     </div>
   </div>
 </div>
