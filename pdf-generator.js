@@ -325,8 +325,8 @@ async function buildPDF(invoice, settings, tryJapanese) {
   const items = invoice.items || [];
   const colDesc = marginLeft;
   const colQty = marginLeft + 100;
-  const colPrice = marginLeft + 125;
-  const colAmount = marginLeft + 155;
+  const colPrice = marginLeft + 118;
+  const colAmount = marginLeft + 140;
   const tableRight = marginLeft + contentWidth;
   const rowH = 7;
   const headerH = 8;
