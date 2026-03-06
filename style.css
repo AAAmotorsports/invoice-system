@@ -514,6 +514,46 @@ tr[onclick]:hover { background: rgba(52,152,219,0.06); }
   letter-spacing: 0.02em;
 }
 
+/* === Invoice status checkboxes (送付・入金) === */
+.hc-status {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 60px;
+}
+.status-check {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.75rem;
+  color: var(--text-light);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.status-check input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.status-check input:checked + span {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* === Item row reorder buttons === */
+.item-actions {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+}
+.item-actions button {
+  padding: 2px 5px;
+  font-size: 0.7rem;
+  min-width: 0;
+  line-height: 1;
+}
+
 /* === Checkbox styling === */
 .inv-check, .hist-check, #inventory-check-all {
   width: 18px;

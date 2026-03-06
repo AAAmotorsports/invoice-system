@@ -703,6 +703,7 @@ function renderInvoiceItems() {
   }
   emptyEl.style.display = 'none';
 
+  const len = currentInvoiceItems.length;
   tbody.innerHTML = currentInvoiceItems.map((item, idx) => `
     <tr class="item-row">
       <td><input type="text" value="${escapeAttr(item.description)}" onchange="updateItemField(${idx},'description',this.value)"></td>
@@ -710,7 +711,12 @@ function renderInvoiceItems() {
       <td><input type="text" value="${escapeAttr(item.unit)}" style="width:50px;" onchange="updateItemField(${idx},'unit',this.value)"></td>
       <td><input type="number" value="${item.unitPrice}" min="0" onchange="updateItemField(${idx},'unitPrice',this.value)"></td>
       <td class="text-right">${formatCurrency(item.amount)}</td>
-      <td class="text-center"><button class="btn btn-danger btn-sm" onclick="removeItem(${idx})">×</button></td>
+      <td class="text-center"><div class="item-actions">
+        ${idx > 0 ? `<button class="btn btn-outline btn-sm" onclick="moveItem(${idx},-1)" title="上へ">↑</button>` : ''}
+        ${idx < len - 1 ? `<button class="btn btn-outline btn-sm" onclick="moveItem(${idx},1)" title="下へ">↓</button>` : ''}
+        <button class="btn btn-outline btn-sm" onclick="insertItemAt(${idx})" title="上に挿入">＋</button>
+        <button class="btn btn-danger btn-sm" onclick="removeItem(${idx})">×</button>
+      </div></td>
     </tr>
   `).join('');
 
@@ -726,6 +732,23 @@ function updateItemField(idx, field, value) {
 
 function removeItem(idx) {
   currentInvoiceItems.splice(idx, 1);
+  renderInvoiceItems();
+}
+
+function moveItem(idx, dir) {
+  const newIdx = idx + dir;
+  if (newIdx < 0 || newIdx >= currentInvoiceItems.length) return;
+  const temp = currentInvoiceItems[idx];
+  currentInvoiceItems[idx] = currentInvoiceItems[newIdx];
+  currentInvoiceItems[newIdx] = temp;
+  renderInvoiceItems();
+}
+
+function insertItemAt(idx) {
+  currentInvoiceItems.splice(idx, 0, {
+    id: generateId(), description: '', quantity: 1,
+    unit: '', unitPrice: 0, amount: 0, inventoryItemId: null
+  });
   renderInvoiceItems();
 }
 
@@ -873,9 +896,21 @@ function renderHistory(search = '') {
         <div class="hc-subject">${escapeHtml(inv.subject)} (${inv.invoiceNumber})</div>
         <div class="hc-total">${formatCurrency(inv.total)}</div>
       </div>
+      <div class="hc-status" onclick="event.stopPropagation()">
+        <label class="status-check"><input type="checkbox" ${inv.sent ? 'checked' : ''} onchange="toggleInvoiceFlag('${inv.id}','sent',this.checked)"><span>送付</span></label>
+        <label class="status-check"><input type="checkbox" ${inv.paid ? 'checked' : ''} onchange="toggleInvoiceFlag('${inv.id}','paid',this.checked)"><span>入金</span></label>
+      </div>
     </div>
   `).join('');
   updateHistoryBulkBar();
+}
+
+function toggleInvoiceFlag(id, flag, value) {
+  const invoices = getInvoices();
+  const inv = invoices.find(i => i.id === id);
+  if (!inv) return;
+  inv[flag] = value;
+  setInvoices(invoices);
 }
 
 document.getElementById('history-search').addEventListener('input', function() {
@@ -1004,6 +1039,7 @@ function startEditInvoice() {
 
 function renderEditInvoiceItems() {
   const tbody = document.getElementById('edit-invoice-items');
+  const len = editInvoiceItems.length;
   tbody.innerHTML = editInvoiceItems.map((item, idx) => `
     <tr>
       <td><input type="text" value="${escapeAttr(item.description)}" onchange="updateEditItemField(${idx},'description',this.value)"></td>
@@ -1011,7 +1047,12 @@ function renderEditInvoiceItems() {
       <td><input type="text" value="${escapeAttr(item.unit)}" style="width:50px;" onchange="updateEditItemField(${idx},'unit',this.value)"></td>
       <td><input type="number" value="${item.unitPrice}" min="0" onchange="updateEditItemField(${idx},'unitPrice',this.value)"></td>
       <td class="text-right">${formatCurrency(item.amount)}</td>
-      <td class="text-center"><button class="btn btn-danger btn-sm" onclick="removeEditItem(${idx})">×</button></td>
+      <td class="text-center"><div class="item-actions">
+        ${idx > 0 ? `<button class="btn btn-outline btn-sm" onclick="moveEditItem(${idx},-1)" title="上へ">↑</button>` : ''}
+        ${idx < len - 1 ? `<button class="btn btn-outline btn-sm" onclick="moveEditItem(${idx},1)" title="下へ">↓</button>` : ''}
+        <button class="btn btn-outline btn-sm" onclick="insertEditItemAt(${idx})" title="上に挿入">＋</button>
+        <button class="btn btn-danger btn-sm" onclick="removeEditItem(${idx})">×</button>
+      </div></td>
     </tr>
   `).join('');
   updateEditInvoiceTotals();
@@ -1026,6 +1067,20 @@ function updateEditItemField(idx, field, value) {
 
 function removeEditItem(idx) {
   editInvoiceItems.splice(idx, 1);
+  renderEditInvoiceItems();
+}
+
+function moveEditItem(idx, dir) {
+  const newIdx = idx + dir;
+  if (newIdx < 0 || newIdx >= editInvoiceItems.length) return;
+  const temp = editInvoiceItems[idx];
+  editInvoiceItems[idx] = editInvoiceItems[newIdx];
+  editInvoiceItems[newIdx] = temp;
+  renderEditInvoiceItems();
+}
+
+function insertEditItemAt(idx) {
+  editInvoiceItems.splice(idx, 0, { description: '', quantity: 1, unit: '', unitPrice: 0, amount: 0, costPrice: 0 });
   renderEditInvoiceItems();
 }
 
