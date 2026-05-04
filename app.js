@@ -1147,6 +1147,8 @@ function saveEditedInvoice() {
 // STOCK LOG (入庫ログ)
 // ===================================================
 function showStockLog() {
+  const checkAll = document.getElementById('stock-log-check-all');
+  if (checkAll) checkAll.checked = false;
   renderStockLog();
   openModal('modal-stock-log');
 }
@@ -1169,19 +1171,117 @@ function renderStockLog() {
   if (filtered.length === 0) {
     tbody.innerHTML = '';
     emptyEl.style.display = 'block';
+    updateStockLogBulkBar();
     return;
   }
   emptyEl.style.display = 'none';
 
   tbody.innerHTML = filtered.map(p => `
     <tr>
+      <td><input type="checkbox" class="stock-log-check" value="${p.id}" onchange="updateStockLogBulkBar()"></td>
       <td>${escapeHtml(p.date || '')}</td>
       <td>${escapeHtml(p.itemName || '')}</td>
       <td class="text-right">${formatNumber(p.quantity)}</td>
       <td class="text-right">${formatCurrency(p.unitPrice)}</td>
       <td class="text-right">${formatCurrency(p.amount)}</td>
+      <td class="text-center"><button class="btn btn-danger btn-sm" onclick="deleteStockLog('${p.id}')">×</button></td>
     </tr>
   `).join('');
+  updateStockLogBulkBar();
+}
+
+function deleteStockLog(id) {
+  if (!confirm('この入庫ログを削除しますか？')) return;
+  setPurchases(getPurchases().filter(p => p.id !== id));
+  showToast('入庫ログを削除しました');
+  renderStockLog();
+}
+
+function toggleAllStockLog(checked) {
+  document.querySelectorAll('.stock-log-check').forEach(cb => cb.checked = checked);
+  updateStockLogBulkBar();
+}
+
+function updateStockLogBulkBar() {
+  const checked = document.querySelectorAll('.stock-log-check:checked');
+  const bar = document.getElementById('stock-log-bulk-bar');
+  const count = document.getElementById('stock-log-checked-count');
+  if (!bar) return;
+  if (checked.length > 0) {
+    bar.style.display = 'flex';
+    count.textContent = checked.length + '件選択中';
+  } else {
+    bar.style.display = 'none';
+  }
+}
+
+function bulkDeleteStockLog() {
+  const checked = document.querySelectorAll('.stock-log-check:checked');
+  if (checked.length === 0) return;
+  if (!confirm(`${checked.length}件の入庫ログを削除しますか？\n\nこの操作は取り消せません。`)) return;
+  const ids = Array.from(checked).map(cb => cb.value);
+  setPurchases(getPurchases().filter(p => !ids.includes(p.id)));
+  const checkAll = document.getElementById('stock-log-check-all');
+  if (checkAll) checkAll.checked = false;
+  showToast(`${ids.length}件の入庫ログを削除しました`);
+  renderStockLog();
+}
+
+// ===================================================
+// SELECT FROM STOCK LOG (請求書作成: 入庫ログから追加)
+// ===================================================
+function showSelectFromStockLog() {
+  const searchEl = document.getElementById('select-stock-log-search');
+  if (searchEl) searchEl.value = '';
+  renderStockLogSelectList(getPurchases());
+  openModal('modal-select-stock-log');
+}
+
+function filterStockLogSelect() {
+  const q = document.getElementById('select-stock-log-search').value.toLowerCase();
+  const filtered = getPurchases().filter(p => (p.itemName || '').toLowerCase().includes(q));
+  renderStockLogSelectList(filtered);
+}
+
+function renderStockLogSelectList(purchases) {
+  const list = document.getElementById('select-stock-log-list');
+  if (!purchases || purchases.length === 0) {
+    list.innerHTML = '<p style="color:var(--text-light);text-align:center;">該当する入庫ログがありません</p>';
+    return;
+  }
+  // 新しい順
+  const sorted = purchases.slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  list.innerHTML = sorted.map(p => `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px;border-bottom:1px solid var(--border);">
+      <div>
+        <div style="font-weight:500;">${escapeHtml(p.itemName || '')}</div>
+        <div style="font-size:0.8rem;color:var(--text-light);">${escapeHtml(p.date || '')} / 数量: ${formatNumber(p.quantity)} / 仕入: ${formatCurrency(p.unitPrice)}</div>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="addFromStockLog('${p.id}')">追加</button>
+    </div>
+  `).join('');
+}
+
+function addFromStockLog(purchaseId) {
+  const purchase = getPurchases().find(p => p.id === purchaseId);
+  if (!purchase) return;
+  // 在庫から該当商品を検索（定価がある場合はそれを使用）
+  const inventoryItem = getInventory().find(i => i.name === purchase.itemName);
+  const price = inventoryItem ? (inventoryItem.retailPrice || purchase.unitPrice) : purchase.unitPrice;
+  const unit = inventoryItem ? (inventoryItem.unit || '') : '';
+  currentInvoiceItems.push({
+    id: generateId(),
+    description: purchase.itemName,
+    quantity: purchase.quantity,
+    unit: unit,
+    unitPrice: price,
+    amount: price * purchase.quantity,
+    inventoryItemId: inventoryItem ? inventoryItem.id : null,
+    costPrice: purchase.unitPrice
+  });
+  renderInvoiceItems();
+  closeModal('modal-select-stock-log');
+  showToast(`${purchase.itemName}を追加しました`);
 }
 
 // ===================================================

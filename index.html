@@ -155,6 +155,7 @@
     <h3>明細</h3>
     <div class="toolbar">
       <button class="btn btn-outline btn-sm" onclick="showSelectFromInventory()">在庫から追加</button>
+      <button class="btn btn-outline btn-sm" onclick="showSelectFromStockLog()">入庫ログから追加</button>
       <button class="btn btn-outline btn-sm" onclick="addManualItem()">手動で追加</button>
     </div>
     <div class="table-wrap">
@@ -515,15 +516,21 @@
     <div class="toolbar" style="margin-bottom:8px;">
       <input type="text" class="form-control search-input" id="stock-log-search" placeholder="商品名で検索..." oninput="renderStockLog()">
     </div>
+    <div id="stock-log-bulk-bar" class="bulk-bar" style="display:none;">
+      <span id="stock-log-checked-count">0件選択中</span>
+      <button class="btn btn-danger btn-sm" onclick="bulkDeleteStockLog()">選択した入庫ログを削除</button>
+    </div>
     <div class="table-wrap">
       <table>
         <thead>
           <tr>
+            <th style="width:36px;"><input type="checkbox" id="stock-log-check-all" onchange="toggleAllStockLog(this.checked)"></th>
             <th>日付</th>
             <th>商品名</th>
             <th class="text-right">数量</th>
             <th class="text-right">仕入単価</th>
             <th class="text-right">金額</th>
+            <th class="text-center" style="width:60px;">操作</th>
           </tr>
         </thead>
         <tbody id="stock-log-table"></tbody>
@@ -534,6 +541,18 @@
     </div>
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeModal('modal-stock-log')">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- Select from Stock Log Modal (請求書作成: 入庫ログから追加) -->
+<div class="modal-overlay" id="modal-select-stock-log">
+  <div class="modal" style="max-width:650px;max-height:85vh;overflow-y:auto;">
+    <h3>入庫ログから商品を選択</h3>
+    <input type="text" class="form-control" id="select-stock-log-search" placeholder="商品名で検索..." oninput="filterStockLogSelect()" style="margin-bottom:12px;">
+    <div id="select-stock-log-list" style="max-height:400px;overflow-y:auto;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('modal-select-stock-log')">閉じる</button>
     </div>
   </div>
 </div>
