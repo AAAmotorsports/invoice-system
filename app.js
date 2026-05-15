@@ -1332,15 +1332,20 @@ function renderStockLogSelectList(purchases) {
   }
   // 新しい順
   const sorted = purchases.slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-  list.innerHTML = sorted.map(p => `
+  const inventory = getInventory();
+  list.innerHTML = sorted.map(p => {
+    const inv = inventory.find(i => i.name === p.itemName);
+    const stockQty = inv ? inv.quantity : 0;
+    const stockUnit = inv ? (inv.unit || '') : '';
+    return `
     <div style="display:flex;justify-content:space-between;align-items:center;padding:8px;border-bottom:1px solid var(--border);">
       <div>
         <div style="font-weight:500;">${escapeHtml(p.itemName || '')}</div>
-        <div style="font-size:0.8rem;color:var(--text-light);">${escapeHtml(p.date || '')} / 数量: ${formatNumber(p.quantity)} / 仕入: ${formatCurrency(p.unitPrice)}</div>
+        <div style="font-size:0.8rem;color:var(--text-light);">${escapeHtml(p.date || '')} / 入庫: ${formatNumber(p.quantity)} / 在庫: ${formatNumber(stockQty)}${escapeHtml(stockUnit)} / 仕入: ${formatCurrency(p.unitPrice)}</div>
       </div>
       <button class="btn btn-primary btn-sm" onclick="addFromStockLog('${p.id}')">追加</button>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 }
 
 function addFromStockLog(purchaseId) {
