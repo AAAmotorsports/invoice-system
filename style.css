@@ -293,6 +293,7 @@ tr:hover { background: rgba(52,152,219,0.03); }
   padding: 20px;
 }
 .modal-overlay.active { display: flex; }
+.modal-overlay.modal-top { z-index: 250; }
 .modal {
   background: var(--card-bg);
   border-radius: var(--radius);

@@ -646,12 +646,14 @@ let selectItemContext = 'create';
 
 function showSelectFromInventory() {
   selectItemContext = 'create';
+  document.getElementById('modal-select-inventory').classList.remove('modal-top');
   renderInventorySelectList(getInventory());
   openModal('modal-select-inventory');
 }
 
 function showSelectFromInventoryForEdit() {
   selectItemContext = 'edit';
+  document.getElementById('modal-select-inventory').classList.add('modal-top');
   renderInventorySelectList(getInventory());
   openModal('modal-select-inventory');
 }
@@ -1300,6 +1302,7 @@ function bulkDeleteStockLog() {
 // ===================================================
 function showSelectFromStockLog() {
   selectItemContext = 'create';
+  document.getElementById('modal-select-stock-log').classList.remove('modal-top');
   const searchEl = document.getElementById('select-stock-log-search');
   if (searchEl) searchEl.value = '';
   renderStockLogSelectList(getPurchases());
@@ -1308,6 +1311,7 @@ function showSelectFromStockLog() {
 
 function showSelectFromStockLogForEdit() {
   selectItemContext = 'edit';
+  document.getElementById('modal-select-stock-log').classList.add('modal-top');
   const searchEl = document.getElementById('select-stock-log-search');
   if (searchEl) searchEl.value = '';
   renderStockLogSelectList(getPurchases());
