@@ -436,8 +436,9 @@
     <div id="invoice-detail-content"></div>
     <div class="modal-actions" style="justify-content:space-between;">
       <button class="btn btn-danger" onclick="deleteInvoice()">削除</button>
-      <div style="display:flex;gap:6px;">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
         <button class="btn btn-outline" onclick="closeModal('modal-invoice-detail')">閉じる</button>
+        <button class="btn btn-outline" onclick="copyInvoice()">コピー</button>
         <button class="btn btn-outline" onclick="startEditInvoice()">修正</button>
         <button class="btn btn-primary" id="btn-reissue" onclick="reissueInvoice()">再発行（PDF）</button>
       </div>
@@ -477,6 +478,11 @@
       </div>
     </div>
     <h4 style="margin-top:12px;">明細</h4>
+    <div class="toolbar" style="margin-bottom:8px;">
+      <button class="btn btn-outline btn-sm" onclick="showSelectFromInventoryForEdit()">在庫から追加</button>
+      <button class="btn btn-outline btn-sm" onclick="showSelectFromStockLogForEdit()">入庫ログから追加</button>
+      <button class="btn btn-outline btn-sm" onclick="addEditInvoiceItem()">手動で追加</button>
+    </div>
     <div class="table-wrap">
       <table>
         <thead>
@@ -492,7 +498,6 @@
         <tbody id="edit-invoice-items"></tbody>
       </table>
     </div>
-    <button class="btn btn-outline btn-sm" onclick="addEditInvoiceItem()" style="margin-top:6px;">+ 明細追加</button>
     <div class="summary-box" style="margin-top:12px;">
       <div class="summary-row"><span>小計</span><span id="edit-inv-subtotal">0円</span></div>
       <div class="summary-row"><span>消費税</span><span id="edit-inv-tax">0円</span></div>

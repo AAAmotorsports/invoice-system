@@ -641,7 +641,17 @@ function refreshCreatePage() {
   renderInvoiceItems();
 }
 
+// 'create' = 新規請求書, 'edit' = 修正モーダル
+let selectItemContext = 'create';
+
 function showSelectFromInventory() {
+  selectItemContext = 'create';
+  renderInventorySelectList(getInventory());
+  openModal('modal-select-inventory');
+}
+
+function showSelectFromInventoryForEdit() {
+  selectItemContext = 'edit';
   renderInventorySelectList(getInventory());
   openModal('modal-select-inventory');
 }
@@ -672,13 +682,19 @@ function addFromInventory(itemId) {
   const item = getInventory().find(i => i.id === itemId);
   if (!item) return;
   const price = item.retailPrice || item.unitPrice;
-  currentInvoiceItems.push({
+  const newItem = {
     id: generateId(), description: item.name, quantity: 1,
     unit: item.unit || '', unitPrice: price,
     amount: price, inventoryItemId: item.id,
     costPrice: item.unitPrice
-  });
-  renderInvoiceItems();
+  };
+  if (selectItemContext === 'edit') {
+    editInvoiceItems.push(newItem);
+    renderEditInvoiceItems();
+  } else {
+    currentInvoiceItems.push(newItem);
+    renderInvoiceItems();
+  }
   closeModal('modal-select-inventory');
   showToast(`${item.name}を追加しました`);
 }
@@ -1005,6 +1021,58 @@ async function reissueInvoice() {
   closeModal('modal-invoice-detail');
 }
 
+// 請求書をコピーして「請求書作成」フォームに読み込む
+function copyInvoice() {
+  if (!currentDetailInvoiceId) return;
+  const inv = getInvoices().find(i => i.id === currentDetailInvoiceId);
+  if (!inv) return;
+
+  // 請求書作成タブへ切り替え
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const createBtn = document.querySelector('.tab-btn[data-tab="create"]');
+  if (createBtn) createBtn.classList.add('active');
+  document.getElementById('page-create').classList.add('active');
+  refreshCreatePage();
+
+  // 明細をコピー
+  currentInvoiceItems = (inv.items || []).map(item => ({
+    id: generateId(),
+    description: item.description || '',
+    quantity: item.quantity || 0,
+    unit: item.unit || '',
+    unitPrice: item.unitPrice || 0,
+    amount: item.amount || 0,
+    inventoryItemId: null,
+    costPrice: item.costPrice || 0
+  }));
+
+  // 顧客名: 既存リストにあれば選択、なければ新規入力欄に
+  const customers = getCustomers();
+  const customerSelect = document.getElementById('inv-customer-select');
+  const customerNewInput = document.getElementById('inv-customer-new');
+  if (inv.customerName && customers.includes(inv.customerName)) {
+    customerSelect.value = inv.customerName;
+    customerNewInput.style.display = 'none';
+    customerNewInput.value = '';
+  } else {
+    customerSelect.value = '__new__';
+    customerNewInput.style.display = 'block';
+    customerNewInput.value = inv.customerName || '';
+  }
+
+  // 各種フィールドを反映
+  document.getElementById('inv-honorific').value = inv.honorific || '様';
+  document.getElementById('inv-subject').value = inv.subject || '';
+  document.getElementById('inv-date').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('inv-due-date').value = '';
+  document.getElementById('inv-notes').value = inv.notes || '';
+
+  renderInvoiceItems();
+  closeModal('modal-invoice-detail');
+  showToast('請求書をコピーしました。顧客名を変更してください');
+}
+
 // ===================================================
 // INVOICE EDIT (請求書修正)
 // ===================================================
@@ -1228,9 +1296,18 @@ function bulkDeleteStockLog() {
 }
 
 // ===================================================
-// SELECT FROM STOCK LOG (請求書作成: 入庫ログから追加)
+// SELECT FROM STOCK LOG (請求書作成/修正: 入庫ログから追加)
 // ===================================================
 function showSelectFromStockLog() {
+  selectItemContext = 'create';
+  const searchEl = document.getElementById('select-stock-log-search');
+  if (searchEl) searchEl.value = '';
+  renderStockLogSelectList(getPurchases());
+  openModal('modal-select-stock-log');
+}
+
+function showSelectFromStockLogForEdit() {
+  selectItemContext = 'edit';
   const searchEl = document.getElementById('select-stock-log-search');
   if (searchEl) searchEl.value = '';
   renderStockLogSelectList(getPurchases());
@@ -1269,7 +1346,7 @@ function addFromStockLog(purchaseId) {
   const inventoryItem = getInventory().find(i => i.name === purchase.itemName);
   const price = inventoryItem ? (inventoryItem.retailPrice || purchase.unitPrice) : purchase.unitPrice;
   const unit = inventoryItem ? (inventoryItem.unit || '') : '';
-  currentInvoiceItems.push({
+  const newItem = {
     id: generateId(),
     description: purchase.itemName,
     quantity: purchase.quantity,
@@ -1278,8 +1355,14 @@ function addFromStockLog(purchaseId) {
     amount: price * purchase.quantity,
     inventoryItemId: inventoryItem ? inventoryItem.id : null,
     costPrice: purchase.unitPrice
-  });
-  renderInvoiceItems();
+  };
+  if (selectItemContext === 'edit') {
+    editInvoiceItems.push(newItem);
+    renderEditInvoiceItems();
+  } else {
+    currentInvoiceItems.push(newItem);
+    renderInvoiceItems();
+  }
   closeModal('modal-select-stock-log');
   showToast(`${purchase.itemName}を追加しました`);
 }
