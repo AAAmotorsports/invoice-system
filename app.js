@@ -440,6 +440,7 @@ function renderInventory(search = '') {
           <td class="text-right">${formatCurrency(item.unitPrice)}</td>
           <td class="text-right">${formatCurrency(item.retailPrice || 0)}</td>
           <td class="text-center">
+            <button class="btn btn-outline btn-sm" onclick="quickAdjustStock('${item.id}')" title="数量調整">±</button>
             <button class="btn btn-outline btn-sm" onclick="editItem('${item.id}')">編集</button>
             <button class="btn btn-danger btn-sm" onclick="deleteItem('${item.id}')">削除</button>
           </td>
@@ -544,6 +545,39 @@ function updateInventoryBulkBar() {
   } else {
     bar.style.display = 'none';
   }
+}
+
+// 数量を相対値で調整（例: +5, -3, 10）
+function quickAdjustStock(id) {
+  const inventory = getInventory();
+  const item = inventory.find(i => i.id === id);
+  if (!item) return;
+  const input = prompt(
+    `「${item.name}」の数量を調整\n現在の在庫: ${item.quantity}${item.unit || ''}\n\n` +
+    `+5 で5増加 / -3 で3減少 / =10 で10にセット`,
+    ''
+  );
+  if (input === null) return;
+  const trimmed = input.trim();
+  if (!trimmed) return;
+
+  let newQty = item.quantity || 0;
+  if (trimmed.startsWith('=')) {
+    newQty = parseInt(trimmed.slice(1), 10);
+  } else if (trimmed.startsWith('+') || trimmed.startsWith('-')) {
+    const delta = parseInt(trimmed, 10);
+    if (isNaN(delta)) { showToast('数値を入力してください', 'error'); return; }
+    newQty = (item.quantity || 0) + delta;
+  } else {
+    const n = parseInt(trimmed, 10);
+    if (isNaN(n)) { showToast('数値を入力してください', 'error'); return; }
+    newQty = (item.quantity || 0) + n;
+  }
+  if (isNaN(newQty)) { showToast('無効な値です', 'error'); return; }
+  item.quantity = Math.max(0, newQty);
+  setInventory(inventory);
+  showToast(`${item.name}: ${item.quantity}${item.unit || ''} に更新`);
+  renderInventory(document.getElementById('inventory-search').value);
 }
 
 function bulkDeleteInventory() {
@@ -808,12 +842,22 @@ async function issueInvoice() {
 
   const totalCost = currentInvoiceItems.reduce((sum, item) => sum + ((item.costPrice || 0) * (item.quantity || 0)), 0);
 
+  // 手入力でも在庫に同名商品があれば inventoryItemId を解決
+  const inventory = getInventory();
+  currentInvoiceItems.forEach(item => {
+    if (!item.inventoryItemId && item.description.trim()) {
+      const existing = inventory.find(i => i.name === item.description.trim());
+      if (existing) item.inventoryItemId = existing.id;
+    }
+  });
+
   const invoice = {
     id: generateId(), invoiceNumber, customerName, honorific, subject, invoiceDate, dueDate,
     items: currentInvoiceItems.map(item => ({
       description: item.description, quantity: item.quantity,
       unit: item.unit, unitPrice: item.unitPrice, amount: item.amount,
-      costPrice: item.costPrice || 0
+      costPrice: item.costPrice || 0,
+      inventoryItemId: item.inventoryItemId || null
     })),
     subtotal, taxRate, tax, total, totalCost, notes, createdAt: Date.now()
   };
@@ -827,33 +871,24 @@ async function issueInvoice() {
   addCustomerIfNew(customerName);
 
   // Deduct inventory & auto-register new items
-  const inventory = getInventory();
   currentInvoiceItems.forEach(item => {
     if (item.inventoryItemId) {
-      // 在庫から選んだ商品 → 数量を引く
       const invItem = inventory.find(i => i.id === item.inventoryItemId);
       if (invItem) {
         invItem.quantity = Math.max(0, invItem.quantity - item.quantity);
         if (item.unit) invItem.unit = item.unit;
-        // 定価を更新（請求書の単価 = 定価）
         if (item.unitPrice > 0) invItem.retailPrice = item.unitPrice;
       }
     } else if (item.description.trim()) {
-      // 手入力の商品 → 在庫に自動追加
-      const existing = inventory.find(i => i.name === item.description.trim());
-      if (existing) {
-        if (item.unitPrice > 0) existing.retailPrice = item.unitPrice;
-        if (item.unit) existing.unit = item.unit;
-      } else {
-        inventory.push({
-          id: generateId(),
-          name: item.description.trim(),
-          quantity: 0,
-          unit: item.unit || '',
-          unitPrice: 0,
-          retailPrice: item.unitPrice || 0
-        });
-      }
+      // 在庫にも入庫ログにも無い完全新規 → 在庫に登録（数量0）
+      inventory.push({
+        id: generateId(),
+        name: item.description.trim(),
+        quantity: 0,
+        unit: item.unit || '',
+        unitPrice: 0,
+        retailPrice: item.unitPrice || 0
+      });
     }
   });
   setInventory(inventory);
@@ -1037,17 +1072,25 @@ function copyInvoice() {
   document.getElementById('page-create').classList.add('active');
   refreshCreatePage();
 
-  // 明細をコピー
-  currentInvoiceItems = (inv.items || []).map(item => ({
-    id: generateId(),
-    description: item.description || '',
-    quantity: item.quantity || 0,
-    unit: item.unit || '',
-    unitPrice: item.unitPrice || 0,
-    amount: item.amount || 0,
-    inventoryItemId: null,
-    costPrice: item.costPrice || 0
-  }));
+  // 明細をコピー（在庫リンクは商品名一致で復元）
+  const inventory = getInventory();
+  currentInvoiceItems = (inv.items || []).map(item => {
+    let invId = item.inventoryItemId || null;
+    if (!invId && item.description) {
+      const matched = inventory.find(i => i.name === item.description);
+      if (matched) invId = matched.id;
+    }
+    return {
+      id: generateId(),
+      description: item.description || '',
+      quantity: item.quantity || 0,
+      unit: item.unit || '',
+      unitPrice: item.unitPrice || 0,
+      amount: item.amount || 0,
+      inventoryItemId: invId,
+      costPrice: item.costPrice || 0
+    };
+  });
 
   // 顧客名: 既存リストにあれば選択、なければ新規入力欄に
   const customers = getCustomers();
@@ -1093,14 +1136,24 @@ function startEditInvoice() {
   document.getElementById('edit-inv-due-date').value = inv.dueDate || '';
   document.getElementById('edit-inv-notes').value = inv.notes || '';
 
-  editInvoiceItems = (inv.items || []).map(item => ({
-    description: item.description || '',
-    quantity: item.quantity || 0,
-    unit: item.unit || '',
-    unitPrice: item.unitPrice || 0,
-    amount: item.amount || 0,
-    costPrice: item.costPrice || 0
-  }));
+  // 既存請求書に inventoryItemId が無い場合は商品名一致で復元
+  const inventory = getInventory();
+  editInvoiceItems = (inv.items || []).map(item => {
+    let invId = item.inventoryItemId || null;
+    if (!invId && item.description) {
+      const matched = inventory.find(i => i.name === item.description);
+      if (matched) invId = matched.id;
+    }
+    return {
+      description: item.description || '',
+      quantity: item.quantity || 0,
+      unit: item.unit || '',
+      unitPrice: item.unitPrice || 0,
+      amount: item.amount || 0,
+      costPrice: item.costPrice || 0,
+      inventoryItemId: invId
+    };
+  });
 
   renderEditInvoiceItems();
   closeModal('modal-invoice-detail');
@@ -1193,6 +1246,59 @@ function saveEditedInvoice() {
   const invoices = getInvoices();
   const idx = invoices.findIndex(i => i.id === id);
   if (idx === -1) { showToast('請求書が見つかりません', 'error'); return; }
+  const oldItems = invoices[idx].items || [];
+
+  // 手入力でも在庫に同名商品があれば inventoryItemId を解決
+  const inventory = getInventory();
+  editInvoiceItems.forEach(item => {
+    if (!item.inventoryItemId && item.description.trim()) {
+      const existing = inventory.find(i => i.name === item.description.trim());
+      if (existing) item.inventoryItemId = existing.id;
+    }
+  });
+
+  // 旧明細・新明細を inventoryItemId 別に集計
+  const oldQtyById = {};
+  oldItems.forEach(it => {
+    let invId = it.inventoryItemId || null;
+    if (!invId && it.description) {
+      const matched = inventory.find(i => i.name === it.description);
+      if (matched) invId = matched.id;
+    }
+    if (invId) oldQtyById[invId] = (oldQtyById[invId] || 0) + (it.quantity || 0);
+  });
+  const newQtyById = {};
+  editInvoiceItems.forEach(it => {
+    if (it.inventoryItemId) {
+      newQtyById[it.inventoryItemId] = (newQtyById[it.inventoryItemId] || 0) + (it.quantity || 0);
+    }
+  });
+
+  // 差分を在庫に反映: 旧 - 新 を在庫に加算（新>旧 なら減算、新<旧 なら戻す）
+  const allIds = new Set([...Object.keys(oldQtyById), ...Object.keys(newQtyById)]);
+  allIds.forEach(invId => {
+    const delta = (oldQtyById[invId] || 0) - (newQtyById[invId] || 0);
+    if (delta === 0) return;
+    const invItem = inventory.find(i => i.id === invId);
+    if (invItem) {
+      invItem.quantity = Math.max(0, (invItem.quantity || 0) + delta);
+    }
+  });
+
+  // 完全新規（在庫にも入庫ログにも無い）→ 在庫に登録
+  editInvoiceItems.forEach(item => {
+    if (!item.inventoryItemId && item.description.trim()) {
+      inventory.push({
+        id: generateId(),
+        name: item.description.trim(),
+        quantity: 0,
+        unit: item.unit || '',
+        unitPrice: 0,
+        retailPrice: item.unitPrice || 0
+      });
+    }
+  });
+  setInventory(inventory);
 
   invoices[idx] = {
     ...invoices[idx],
@@ -1200,7 +1306,8 @@ function saveEditedInvoice() {
     items: editInvoiceItems.map(item => ({
       description: item.description, quantity: item.quantity,
       unit: item.unit, unitPrice: item.unitPrice, amount: item.amount,
-      costPrice: item.costPrice || 0
+      costPrice: item.costPrice || 0,
+      inventoryItemId: item.inventoryItemId || null
     })),
     subtotal, taxRate, tax, total, totalCost
   };
