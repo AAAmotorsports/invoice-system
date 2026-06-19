@@ -1353,17 +1353,27 @@ function renderStockLog() {
   }
   emptyEl.style.display = 'none';
 
-  tbody.innerHTML = filtered.map(p => `
+  const inventory = getInventory();
+  tbody.innerHTML = filtered.map(p => {
+    const inv = inventory.find(i => i.name === p.itemName);
+    const stockQty = inv ? inv.quantity : 0;
+    const stockUnit = inv ? (inv.unit || '') : '';
+    const stockColor = inv ? (stockQty < p.quantity ? 'color:#e67e22;' : '') : 'color:#999;';
+    const stockDisplay = inv
+      ? `${formatNumber(stockQty)}${escapeHtml(stockUnit)}`
+      : '—';
+    return `
     <tr>
       <td><input type="checkbox" class="stock-log-check" value="${p.id}" onchange="updateStockLogBulkBar()"></td>
       <td>${escapeHtml(p.date || '')}</td>
       <td>${escapeHtml(p.itemName || '')}</td>
       <td class="text-right">${formatNumber(p.quantity)}</td>
+      <td class="text-right" style="${stockColor}">${stockDisplay}</td>
       <td class="text-right">${formatCurrency(p.unitPrice)}</td>
       <td class="text-right">${formatCurrency(p.amount)}</td>
       <td class="text-center"><button class="btn btn-danger btn-sm" onclick="deleteStockLog('${p.id}')">×</button></td>
-    </tr>
-  `).join('');
+    </tr>`;
+  }).join('');
   updateStockLogBulkBar();
 }
 
