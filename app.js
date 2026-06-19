@@ -1407,12 +1407,17 @@ function bulkDeleteStockLog() {
 // ===================================================
 // SELECT FROM STOCK LOG (請求書作成/修正: 入庫ログから追加)
 // ===================================================
+// 入庫ログ選択モーダル: 選択された purchase ID を「選択順」で保持
+let stockLogSelectionOrder = [];
+
 function showSelectFromStockLog() {
   selectItemContext = 'create';
   document.getElementById('modal-select-stock-log').classList.remove('modal-top');
   const searchEl = document.getElementById('select-stock-log-search');
   if (searchEl) searchEl.value = '';
+  stockLogSelectionOrder = [];
   renderStockLogSelectList(getPurchases());
+  updateStockLogSelectButton();
   openModal('modal-select-stock-log');
 }
 
@@ -1421,7 +1426,9 @@ function showSelectFromStockLogForEdit() {
   document.getElementById('modal-select-stock-log').classList.add('modal-top');
   const searchEl = document.getElementById('select-stock-log-search');
   if (searchEl) searchEl.value = '';
+  stockLogSelectionOrder = [];
   renderStockLogSelectList(getPurchases());
+  updateStockLogSelectButton();
   openModal('modal-select-stock-log');
 }
 
@@ -1444,43 +1451,83 @@ function renderStockLogSelectList(purchases) {
     const inv = inventory.find(i => i.name === p.itemName);
     const stockQty = inv ? inv.quantity : 0;
     const stockUnit = inv ? (inv.unit || '') : '';
+    const orderIdx = stockLogSelectionOrder.indexOf(p.id);
+    const isSelected = orderIdx >= 0;
+    const badge = isSelected
+      ? `<span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:var(--primary,#3498db);color:#fff;font-weight:bold;font-size:0.85rem;">${orderIdx + 1}</span>`
+      : `<span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:#eee;color:#999;font-size:0.85rem;">＋</span>`;
     return `
-    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px;border-bottom:1px solid var(--border);">
-      <div>
+    <div onclick="toggleStockLogSelect('${p.id}')" style="display:flex;justify-content:space-between;align-items:center;padding:8px;border-bottom:1px solid var(--border);cursor:pointer;background:${isSelected ? 'rgba(52,152,219,0.08)' : 'transparent'};">
+      <div style="flex:1;">
         <div style="font-weight:500;">${escapeHtml(p.itemName || '')}</div>
         <div style="font-size:0.8rem;color:var(--text-light);">${escapeHtml(p.date || '')} / 入庫: ${formatNumber(p.quantity)} / 在庫: ${formatNumber(stockQty)}${escapeHtml(stockUnit)} / 仕入: ${formatCurrency(p.unitPrice)}</div>
       </div>
-      <button class="btn btn-primary btn-sm" onclick="addFromStockLog('${p.id}')">追加</button>
+      ${badge}
     </div>`;
   }).join('');
 }
 
-function addFromStockLog(purchaseId) {
-  const purchase = getPurchases().find(p => p.id === purchaseId);
-  if (!purchase) return;
-  // 在庫から該当商品を検索（定価がある場合はそれを使用）
-  const inventoryItem = getInventory().find(i => i.name === purchase.itemName);
-  const price = inventoryItem ? (inventoryItem.retailPrice || purchase.unitPrice) : purchase.unitPrice;
-  const unit = inventoryItem ? (inventoryItem.unit || '') : '';
-  const newItem = {
-    id: generateId(),
-    description: purchase.itemName,
-    quantity: purchase.quantity,
-    unit: unit,
-    unitPrice: price,
-    amount: price * purchase.quantity,
-    inventoryItemId: inventoryItem ? inventoryItem.id : null,
-    costPrice: purchase.unitPrice
-  };
+function toggleStockLogSelect(purchaseId) {
+  const idx = stockLogSelectionOrder.indexOf(purchaseId);
+  if (idx >= 0) {
+    stockLogSelectionOrder.splice(idx, 1);
+  } else {
+    stockLogSelectionOrder.push(purchaseId);
+  }
+  // 検索フィルタを維持したまま再描画
+  const q = (document.getElementById('select-stock-log-search') || {}).value || '';
+  const filtered = q
+    ? getPurchases().filter(p => (p.itemName || '').toLowerCase().includes(q.toLowerCase()))
+    : getPurchases();
+  renderStockLogSelectList(filtered);
+  updateStockLogSelectButton();
+}
+
+function updateStockLogSelectButton() {
+  const btn = document.getElementById('btn-add-selected-stock-log');
+  if (!btn) return;
+  const n = stockLogSelectionOrder.length;
+  btn.textContent = `選択を請求書に追加 (${n}件)`;
+  btn.disabled = n === 0;
+  btn.style.opacity = n === 0 ? '0.5' : '1';
+}
+
+function addSelectedStockLogToInvoice() {
+  if (stockLogSelectionOrder.length === 0) return;
+  const purchases = getPurchases();
+  const inventory = getInventory();
+  let addedCount = 0;
+  stockLogSelectionOrder.forEach(pid => {
+    const purchase = purchases.find(p => p.id === pid);
+    if (!purchase) return;
+    const inventoryItem = inventory.find(i => i.name === purchase.itemName);
+    const price = inventoryItem ? (inventoryItem.retailPrice || purchase.unitPrice) : purchase.unitPrice;
+    const unit = inventoryItem ? (inventoryItem.unit || '') : '';
+    const newItem = {
+      id: generateId(),
+      description: purchase.itemName,
+      quantity: purchase.quantity,
+      unit: unit,
+      unitPrice: price,
+      amount: price * purchase.quantity,
+      inventoryItemId: inventoryItem ? inventoryItem.id : null,
+      costPrice: purchase.unitPrice
+    };
+    if (selectItemContext === 'edit') {
+      editInvoiceItems.push(newItem);
+    } else {
+      currentInvoiceItems.push(newItem);
+    }
+    addedCount++;
+  });
   if (selectItemContext === 'edit') {
-    editInvoiceItems.push(newItem);
     renderEditInvoiceItems();
   } else {
-    currentInvoiceItems.push(newItem);
     renderInvoiceItems();
   }
   closeModal('modal-select-stock-log');
-  showToast(`${purchase.itemName}を追加しました`);
+  stockLogSelectionOrder = [];
+  showToast(`${addedCount}件を追加しました`);
 }
 
 // ===================================================

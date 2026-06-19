@@ -554,10 +554,12 @@
 <div class="modal-overlay" id="modal-select-stock-log">
   <div class="modal" style="max-width:650px;max-height:85vh;overflow-y:auto;">
     <h3>入庫ログから商品を選択</h3>
+    <p style="font-size:0.85rem;color:var(--text-light);margin:0 0 8px;">タップで選択／解除。番号の順に請求書へ追加されます。</p>
     <input type="text" class="form-control" id="select-stock-log-search" placeholder="商品名で検索..." oninput="filterStockLogSelect()" style="margin-bottom:12px;">
     <div id="select-stock-log-list" style="max-height:400px;overflow-y:auto;"></div>
-    <div class="modal-actions">
-      <button class="btn btn-outline" onclick="closeModal('modal-select-stock-log')">閉じる</button>
+    <div class="modal-actions" style="justify-content:space-between;align-items:center;">
+      <button class="btn btn-outline" onclick="closeModal('modal-select-stock-log')">キャンセル</button>
+      <button class="btn btn-primary" id="btn-add-selected-stock-log" onclick="addSelectedStockLogToInvoice()">選択を請求書に追加 (0件)</button>
     </div>
   </div>
 </div>

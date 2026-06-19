@@ -427,8 +427,11 @@ async function buildPDF(invoice, settings, tryJapanese) {
 
   // 保存
   const fileHonorific = invoice.honorific || '\u69D8';
-  const unpaidPrefix = invoice.paid ? '' : '[\u672A\u53CE]';
-  const filename = unpaidPrefix + (invoice.customerName || 'customer') + fileHonorific + '_' +
+  const statusTags = [];
+  if (!invoice.sent) statusTags.push('\u672A\u9001');
+  if (!invoice.paid) statusTags.push('\u672A\u53CE');
+  const statusPrefix = statusTags.length > 0 ? '[' + statusTags.join('\u30FB') + ']' : '';
+  const filename = statusPrefix + (invoice.customerName || 'customer') + fileHonorific + '_' +
     (invoice.subject || 'invoice') + '_\u8ACB\u6C42\u66F8_' +
     (invoice.invoiceNumber || 'draft') + '.pdf';
   doc.save(filename);
