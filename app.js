@@ -1365,7 +1365,9 @@ function renderStockLog() {
   }
   if (unpaidOnly) {
     const validInvoiceIds = new Set(getInvoices().map(iv => iv.id));
-    filtered = filtered.filter(p => !p.invoicedInvoiceId || !validInvoiceIds.has(p.invoicedInvoiceId));
+    filtered = filtered.filter(p =>
+      !p.excluded && (!p.invoicedInvoiceId || !validInvoiceIds.has(p.invoicedInvoiceId))
+    );
   }
 
   // 新しい順
@@ -1393,11 +1395,19 @@ function renderStockLog() {
       ? `${formatNumber(stockQty)}${escapeHtml(stockUnit)}`
       : '—';
 
-    // 請求済み判定: 紐付いた invoice が存在するか
+    // 3状態: 済 / 対象外 / 未請求
     const invoiced = p.invoicedInvoiceId && invoices.find(iv => iv.id === p.invoicedInvoiceId);
-    const invoiceBadge = invoiced
-      ? `<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:#2ecc71;color:#fff;font-size:0.75rem;font-weight:bold;" title="請求書番号: ${escapeHtml(p.invoicedInvoiceNumber || '')}">✓ 済</span>`
-      : `<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:#e74c3c;color:#fff;font-size:0.75rem;font-weight:bold;">未請求</span>`;
+    let invoiceBadge, toggleBtn;
+    if (invoiced) {
+      invoiceBadge = `<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:#2ecc71;color:#fff;font-size:0.75rem;font-weight:bold;" title="請求書番号: ${escapeHtml(p.invoicedInvoiceNumber || '')}">✓ 済</span>`;
+      toggleBtn = '';
+    } else if (p.excluded) {
+      invoiceBadge = `<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:#95a5a6;color:#fff;font-size:0.75rem;font-weight:bold;">対象外</span>`;
+      toggleBtn = `<button class="btn btn-outline btn-sm" onclick="togglePurchaseExcluded('${p.id}')" title="未請求に戻す">↩</button>`;
+    } else {
+      invoiceBadge = `<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:#e74c3c;color:#fff;font-size:0.75rem;font-weight:bold;">未請求</span>`;
+      toggleBtn = `<button class="btn btn-outline btn-sm" onclick="togglePurchaseExcluded('${p.id}')" title="対象外にする（自社使用など）">除外</button>`;
+    }
 
     return `
     <tr>
@@ -1409,7 +1419,7 @@ function renderStockLog() {
       <td class="text-right">${formatCurrency(p.unitPrice)}</td>
       <td class="text-right">${formatCurrency(p.amount)}</td>
       <td class="text-center">${invoiceBadge}</td>
-      <td class="text-center"><button class="btn btn-danger btn-sm" onclick="deleteStockLog('${p.id}')">×</button></td>
+      <td class="text-center">${toggleBtn}<button class="btn btn-danger btn-sm" onclick="deleteStockLog('${p.id}')">×</button></td>
     </tr>`;
   }).join('');
   updateStockLogBulkBar();
@@ -1419,6 +1429,17 @@ function deleteStockLog(id) {
   if (!confirm('この入庫ログを削除しますか？')) return;
   setPurchases(getPurchases().filter(p => p.id !== id));
   showToast('入庫ログを削除しました');
+  renderStockLog();
+}
+
+// 対象外フラグ切り替え（自社使用など請求しない入庫を除外）
+function togglePurchaseExcluded(id) {
+  const purchases = getPurchases();
+  const p = purchases.find(x => x.id === id);
+  if (!p) return;
+  p.excluded = !p.excluded;
+  setPurchases(purchases);
+  showToast(p.excluded ? '対象外にしました' : '未請求に戻しました');
   renderStockLog();
 }
 
@@ -1464,7 +1485,7 @@ function showSelectFromStockLog() {
   const searchEl = document.getElementById('select-stock-log-search');
   if (searchEl) searchEl.value = '';
   stockLogSelectionOrder = [];
-  renderStockLogSelectList(getPurchases());
+  renderStockLogSelectList(getPurchases().filter(p => !p.excluded));
   updateStockLogSelectButton();
   openModal('modal-select-stock-log');
 }
@@ -1475,14 +1496,14 @@ function showSelectFromStockLogForEdit() {
   const searchEl = document.getElementById('select-stock-log-search');
   if (searchEl) searchEl.value = '';
   stockLogSelectionOrder = [];
-  renderStockLogSelectList(getPurchases());
+  renderStockLogSelectList(getPurchases().filter(p => !p.excluded));
   updateStockLogSelectButton();
   openModal('modal-select-stock-log');
 }
 
 function filterStockLogSelect() {
   const q = document.getElementById('select-stock-log-search').value.toLowerCase();
-  const filtered = getPurchases().filter(p => (p.itemName || '').toLowerCase().includes(q));
+  const filtered = getPurchases().filter(p => !p.excluded && (p.itemName || '').toLowerCase().includes(q));
   renderStockLogSelectList(filtered);
 }
 
