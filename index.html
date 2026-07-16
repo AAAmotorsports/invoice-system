@@ -520,6 +520,10 @@
     <h3>入庫ログ（仕入れ履歴）</h3>
     <div class="toolbar" style="margin-bottom:8px;">
       <input type="text" class="form-control search-input" id="stock-log-search" placeholder="商品名で検索..." oninput="renderStockLog()">
+      <label style="display:inline-flex;align-items:center;gap:4px;font-size:0.9rem;white-space:nowrap;">
+        <input type="checkbox" id="stock-log-unpaid-only" onchange="renderStockLog()">
+        未請求のみ
+      </label>
     </div>
     <div id="stock-log-bulk-bar" class="bulk-bar" style="display:none;">
       <span id="stock-log-checked-count">0件選択中</span>
@@ -536,6 +540,7 @@
             <th class="text-right">現在在庫</th>
             <th class="text-right">仕入単価</th>
             <th class="text-right">金額</th>
+            <th class="text-center">請求</th>
             <th class="text-center" style="width:60px;">操作</th>
           </tr>
         </thead>

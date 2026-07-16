@@ -857,7 +857,8 @@ async function issueInvoice() {
       description: item.description, quantity: item.quantity,
       unit: item.unit, unitPrice: item.unitPrice, amount: item.amount,
       costPrice: item.costPrice || 0,
-      inventoryItemId: item.inventoryItemId || null
+      inventoryItemId: item.inventoryItemId || null,
+      sourcePurchaseId: item.sourcePurchaseId || null
     })),
     subtotal, taxRate, tax, total, totalCost, notes, createdAt: Date.now()
   };
@@ -869,6 +870,9 @@ async function issueInvoice() {
 
   // Register customer
   addCustomerIfNew(customerName);
+
+  // 入庫ログとの紐付け（入庫ログから追加した明細のみ）
+  linkPurchasesToInvoice(currentInvoiceItems, invoice);
 
   // Deduct inventory & auto-register new items
   currentInvoiceItems.forEach(item => {
@@ -1151,7 +1155,8 @@ function startEditInvoice() {
       unitPrice: item.unitPrice || 0,
       amount: item.amount || 0,
       costPrice: item.costPrice || 0,
-      inventoryItemId: invId
+      inventoryItemId: invId,
+      sourcePurchaseId: item.sourcePurchaseId || null
     };
   });
 
@@ -1307,17 +1312,36 @@ function saveEditedInvoice() {
       description: item.description, quantity: item.quantity,
       unit: item.unit, unitPrice: item.unitPrice, amount: item.amount,
       costPrice: item.costPrice || 0,
-      inventoryItemId: item.inventoryItemId || null
+      inventoryItemId: item.inventoryItemId || null,
+      sourcePurchaseId: item.sourcePurchaseId || null
     })),
     subtotal, taxRate, tax, total, totalCost
   };
 
   setInvoices(invoices);
   addCustomerIfNew(customerName);
+  // 入庫ログとの紐付け（新たに追加された sourcePurchaseId があれば）
+  linkPurchasesToInvoice(editInvoiceItems, invoices[idx]);
   closeModal('modal-invoice-edit');
   renderHistory();
   renderSalesHistory();
   showToast('請求書を修正しました');
+}
+
+// items 内の sourcePurchaseId を持つ明細を入庫ログに紐付ける
+function linkPurchasesToInvoice(items, invoice) {
+  const purchases = getPurchases();
+  let changed = false;
+  items.forEach(item => {
+    if (!item.sourcePurchaseId) return;
+    const purchase = purchases.find(p => p.id === item.sourcePurchaseId);
+    if (!purchase) return;
+    purchase.invoicedInvoiceId = invoice.id;
+    purchase.invoicedInvoiceNumber = invoice.invoiceNumber;
+    purchase.invoicedAt = Date.now();
+    changed = true;
+  });
+  if (changed) setPurchases(purchases);
 }
 
 // ===================================================
@@ -1333,10 +1357,15 @@ function showStockLog() {
 function renderStockLog() {
   const purchases = getPurchases();
   const search = (document.getElementById('stock-log-search') || {}).value || '';
+  const unpaidOnly = (document.getElementById('stock-log-unpaid-only') || {}).checked;
 
   let filtered = purchases.slice();
   if (search) {
     filtered = filtered.filter(p => p.itemName.toLowerCase().includes(search.toLowerCase()));
+  }
+  if (unpaidOnly) {
+    const validInvoiceIds = new Set(getInvoices().map(iv => iv.id));
+    filtered = filtered.filter(p => !p.invoicedInvoiceId || !validInvoiceIds.has(p.invoicedInvoiceId));
   }
 
   // 新しい順
@@ -1354,6 +1383,7 @@ function renderStockLog() {
   emptyEl.style.display = 'none';
 
   const inventory = getInventory();
+  const invoices = getInvoices();
   tbody.innerHTML = filtered.map(p => {
     const inv = inventory.find(i => i.name === p.itemName);
     const stockQty = inv ? inv.quantity : 0;
@@ -1362,6 +1392,13 @@ function renderStockLog() {
     const stockDisplay = inv
       ? `${formatNumber(stockQty)}${escapeHtml(stockUnit)}`
       : '—';
+
+    // 請求済み判定: 紐付いた invoice が存在するか
+    const invoiced = p.invoicedInvoiceId && invoices.find(iv => iv.id === p.invoicedInvoiceId);
+    const invoiceBadge = invoiced
+      ? `<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:#2ecc71;color:#fff;font-size:0.75rem;font-weight:bold;" title="請求書番号: ${escapeHtml(p.invoicedInvoiceNumber || '')}">✓ 済</span>`
+      : `<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:#e74c3c;color:#fff;font-size:0.75rem;font-weight:bold;">未請求</span>`;
+
     return `
     <tr>
       <td><input type="checkbox" class="stock-log-check" value="${p.id}" onchange="updateStockLogBulkBar()"></td>
@@ -1371,6 +1408,7 @@ function renderStockLog() {
       <td class="text-right" style="${stockColor}">${stockDisplay}</td>
       <td class="text-right">${formatCurrency(p.unitPrice)}</td>
       <td class="text-right">${formatCurrency(p.amount)}</td>
+      <td class="text-center">${invoiceBadge}</td>
       <td class="text-center"><button class="btn btn-danger btn-sm" onclick="deleteStockLog('${p.id}')">×</button></td>
     </tr>`;
   }).join('');
@@ -1457,6 +1495,7 @@ function renderStockLogSelectList(purchases) {
   // 新しい順
   const sorted = purchases.slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   const inventory = getInventory();
+  const invoices = getInvoices();
   list.innerHTML = sorted.map(p => {
     const inv = inventory.find(i => i.name === p.itemName);
     const stockQty = inv ? inv.quantity : 0;
@@ -1466,10 +1505,14 @@ function renderStockLogSelectList(purchases) {
     const badge = isSelected
       ? `<span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:var(--primary,#3498db);color:#fff;font-weight:bold;font-size:0.85rem;">${orderIdx + 1}</span>`
       : `<span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:#eee;color:#999;font-size:0.85rem;">＋</span>`;
+    const invoiced = p.invoicedInvoiceId && invoices.find(iv => iv.id === p.invoicedInvoiceId);
+    const invoiceTag = invoiced
+      ? `<span style="display:inline-block;padding:1px 6px;border-radius:8px;background:#2ecc71;color:#fff;font-size:0.7rem;margin-left:6px;">✓済</span>`
+      : `<span style="display:inline-block;padding:1px 6px;border-radius:8px;background:#e74c3c;color:#fff;font-size:0.7rem;margin-left:6px;">未</span>`;
     return `
     <div onclick="toggleStockLogSelect('${p.id}')" style="display:flex;justify-content:space-between;align-items:center;padding:8px;border-bottom:1px solid var(--border);cursor:pointer;background:${isSelected ? 'rgba(52,152,219,0.08)' : 'transparent'};">
       <div style="flex:1;">
-        <div style="font-weight:500;">${escapeHtml(p.itemName || '')}</div>
+        <div style="font-weight:500;">${escapeHtml(p.itemName || '')}${invoiceTag}</div>
         <div style="font-size:0.8rem;color:var(--text-light);">${escapeHtml(p.date || '')} / 入庫: ${formatNumber(p.quantity)} / 在庫: ${formatNumber(stockQty)}${escapeHtml(stockUnit)} / 仕入: ${formatCurrency(p.unitPrice)}</div>
       </div>
       ${badge}
@@ -1521,7 +1564,8 @@ function addSelectedStockLogToInvoice() {
       unitPrice: price,
       amount: price * purchase.quantity,
       inventoryItemId: inventoryItem ? inventoryItem.id : null,
-      costPrice: purchase.unitPrice
+      costPrice: purchase.unitPrice,
+      sourcePurchaseId: purchase.id
     };
     if (selectItemContext === 'edit') {
       editInvoiceItems.push(newItem);
