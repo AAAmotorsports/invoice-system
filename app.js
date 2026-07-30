@@ -8,7 +8,8 @@ const STORAGE_KEYS = {
   invoices: 'invoice_sys_invoices',
   settings: 'invoice_sys_settings',
   customers: 'invoice_sys_customers',
-  purchases: 'invoice_sys_purchases'
+  purchases: 'invoice_sys_purchases',
+  expenses: 'invoice_sys_expenses'
 };
 
 const DEFAULT_SETTINGS = {
@@ -59,6 +60,8 @@ function getCustomers() { return loadData(STORAGE_KEYS.customers) || []; }
 function setCustomers(customers) { saveData(STORAGE_KEYS.customers, customers); markUnsaved(); }
 function getPurchases() { return loadData(STORAGE_KEYS.purchases) || []; }
 function setPurchases(purchases) { saveData(STORAGE_KEYS.purchases, purchases); markUnsaved(); }
+function getExpenses() { return loadData(STORAGE_KEYS.expenses) || []; }
+function setExpenses(expenses) { saveData(STORAGE_KEYS.expenses, expenses); markUnsaved(); }
 
 // 仕入れ履歴を記録
 function addPurchase(itemName, quantity, unitPrice, date) {
@@ -176,6 +179,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     if (tab === 'sales') renderSalesHistory();
     if (tab === 'settings') loadSettingsForm();
     if (tab === 'create') refreshCreatePage();
+    if (tab === 'expense') refreshExpensePage();
   });
 });
 
@@ -1978,13 +1982,14 @@ function deleteBank(id) {
 // ===================================================
 function exportBackup() {
   const data = {
-    version: 3,
+    version: 4,
     exportedAt: new Date().toISOString(),
     inventory: getInventory(),
     invoices: getInvoices(),
     settings: getSettings(),
     customers: getCustomers(),
-    purchases: getPurchases()
+    purchases: getPurchases(),
+    expenses: getExpenses()
   };
 
   const json = JSON.stringify(data, null, 2);
@@ -2020,6 +2025,7 @@ function importBackup(event) {
       setSettings(data.settings);
       if (data.customers) setCustomers(data.customers);
       if (data.purchases) setPurchases(data.purchases);
+      if (data.expenses) setExpenses(data.expenses);
       showToast('バックアップを復元しました');
       renderDashboard();
     } catch(e) {
@@ -2049,13 +2055,14 @@ let savedFileHandle = null; // File System Access API用
 
 function buildDataObject() {
   return {
-    version: 3,
+    version: 4,
     savedAt: new Date().toISOString(),
     inventory: getInventory(),
     invoices: getInvoices(),
     settings: getSettings(),
     customers: getCustomers(),
-    purchases: getPurchases()
+    purchases: getPurchases(),
+    expenses: getExpenses()
   };
 }
 
@@ -2066,6 +2073,7 @@ function applyLoadedData(data) {
   if (data.settings) localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(data.settings));
   if (data.customers) localStorage.setItem(STORAGE_KEYS.customers, JSON.stringify(data.customers));
   if (data.purchases) localStorage.setItem(STORAGE_KEYS.purchases, JSON.stringify(data.purchases));
+  if (data.expenses) localStorage.setItem(STORAGE_KEYS.expenses, JSON.stringify(data.expenses));
   markSaved();
   renderDashboard();
   refreshCreatePage();
@@ -2229,3 +2237,380 @@ document.addEventListener('DOMContentLoaded', async () => {
     await initialSync();
   }
 });
+
+
+// ===================================================
+// EXPENSE REIMBURSEMENT (経費請求 / 立替明細書)
+// ===================================================
+let currentExpenseItems = [];
+
+function refreshExpensePage() {
+  // 顧客リスト更新
+  const select = document.getElementById('exp-customer-select');
+  const customers = getCustomers();
+  let html = '<option value="">-- 顧客を選択 --</option>';
+  html += customers.map(c => `<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`).join('');
+  html += '<option value="__new__">+ 新規顧客を入力</option>';
+  select.innerHTML = html;
+
+  // 請求日デフォルト今日
+  if (!document.getElementById('exp-date').value) {
+    document.getElementById('exp-date').value = new Date().toISOString().slice(0, 10);
+  }
+  renderExpenseItems();
+  renderExpenseHistory();
+}
+
+function onExpCustomerSelectChange() {
+  const select = document.getElementById('exp-customer-select');
+  const input = document.getElementById('exp-customer-new');
+  if (select.value === '__new__') {
+    input.style.display = 'block';
+    input.focus();
+  } else {
+    input.style.display = 'none';
+    input.value = '';
+  }
+}
+
+function getSelectedExpCustomerName() {
+  const select = document.getElementById('exp-customer-select');
+  if (select.value === '__new__') return document.getElementById('exp-customer-new').value.trim();
+  return select.value;
+}
+
+function addExpenseItem() {
+  currentExpenseItems.push({
+    id: generateId(),
+    date: new Date().toISOString().slice(0, 10),
+    description: '',
+    amount: 0,
+    receiptImage: null,
+    receiptFilename: null
+  });
+  renderExpenseItems();
+}
+
+function renderExpenseItems() {
+  const list = document.getElementById('expense-items-list');
+  const emptyEl = document.getElementById('expense-items-empty');
+  if (currentExpenseItems.length === 0) {
+    list.innerHTML = '';
+    emptyEl.style.display = 'block';
+    updateExpenseTotal();
+    return;
+  }
+  emptyEl.style.display = 'none';
+
+  const len = currentExpenseItems.length;
+  list.innerHTML = currentExpenseItems.map((item, idx) => `
+    <div style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px;">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
+        <div style="font-weight:bold;color:var(--text-light);">#${idx + 1}</div>
+        <input type="date" value="${item.date || ''}" onchange="updateExpenseItemField(${idx},'date',this.value)" style="width:140px;padding:6px;border:1px solid var(--border);border-radius:4px;">
+        <input type="number" value="${item.amount}" min="0" placeholder="金額" onchange="updateExpenseItemField(${idx},'amount',this.value)" style="width:100px;padding:6px;border:1px solid var(--border);border-radius:4px;text-align:right;">
+        <span>円</span>
+        <div style="margin-left:auto;display:flex;gap:4px;">
+          ${idx > 0 ? `<button class="btn btn-outline btn-sm" onclick="moveExpenseItem(${idx},-1)">↑</button>` : ''}
+          ${idx < len - 1 ? `<button class="btn btn-outline btn-sm" onclick="moveExpenseItem(${idx},1)">↓</button>` : ''}
+          <button class="btn btn-danger btn-sm" onclick="removeExpenseItem(${idx})">×</button>
+        </div>
+      </div>
+      <input type="text" value="${escapeAttr(item.description)}" placeholder="内容（例: 東京→名古屋 新幹線）" onchange="updateExpenseItemField(${idx},'description',this.value)" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:4px;margin-bottom:8px;">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <label class="btn btn-outline btn-sm" style="margin:0;cursor:pointer;">
+          ${item.receiptImage ? '📷 領収書を変更' : '📷 領収書を添付'}
+          <input type="file" accept="image/*" onchange="uploadReceiptImage(event, ${idx})" style="display:none;">
+        </label>
+        ${item.receiptImage ? `
+          <img src="${item.receiptImage}" style="max-height:60px;border:1px solid var(--border);border-radius:4px;cursor:pointer;" onclick="showReceiptPreview('${item.id}')">
+          <button class="btn btn-outline btn-sm" onclick="removeReceiptImage(${idx})">画像削除</button>
+        ` : ''}
+      </div>
+    </div>
+  `).join('');
+  updateExpenseTotal();
+}
+
+function updateExpenseItemField(idx, field, value) {
+  if (field === 'amount') value = parseInt(value, 10) || 0;
+  currentExpenseItems[idx][field] = value;
+  updateExpenseTotal();
+}
+
+function removeExpenseItem(idx) {
+  currentExpenseItems.splice(idx, 1);
+  renderExpenseItems();
+}
+
+function moveExpenseItem(idx, dir) {
+  const newIdx = idx + dir;
+  if (newIdx < 0 || newIdx >= currentExpenseItems.length) return;
+  const t = currentExpenseItems[idx];
+  currentExpenseItems[idx] = currentExpenseItems[newIdx];
+  currentExpenseItems[newIdx] = t;
+  renderExpenseItems();
+}
+
+function uploadReceiptImage(event, idx) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const img = new Image();
+    img.onload = function() {
+      // 最大1000px、JPEG 75%で圧縮
+      const MAX_SIZE = 1000;
+      let w = img.width, h = img.height;
+      if (w > MAX_SIZE || h > MAX_SIZE) {
+        if (w > h) { h = Math.round(h * MAX_SIZE / w); w = MAX_SIZE; }
+        else { w = Math.round(w * MAX_SIZE / h); h = MAX_SIZE; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+      currentExpenseItems[idx].receiptImage = canvas.toDataURL('image/jpeg', 0.75);
+      currentExpenseItems[idx].receiptFilename = file.name;
+      renderExpenseItems();
+      showToast('領収書を添付しました');
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+  event.target.value = '';
+}
+
+function removeReceiptImage(idx) {
+  currentExpenseItems[idx].receiptImage = null;
+  currentExpenseItems[idx].receiptFilename = null;
+  renderExpenseItems();
+}
+
+function showReceiptPreview(itemId) {
+  const item = currentExpenseItems.find(i => i.id === itemId);
+  if (!item || !item.receiptImage) return;
+  const w = window.open('');
+  w.document.write(`<img src="${item.receiptImage}" style="max-width:100%;">`);
+}
+
+function updateExpenseTotal() {
+  const total = currentExpenseItems.reduce((sum, i) => sum + (i.amount || 0), 0);
+  document.getElementById('exp-total').textContent = formatCurrency(total);
+}
+
+function generateExpenseNumber(dateStr) {
+  const d = dateStr.replace(/-/g, '');
+  const expenses = getExpenses();
+  const sameDay = expenses.filter(e => (e.expenseNumber || '').startsWith('E' + d));
+  const seq = String(sameDay.length + 1).padStart(3, '0');
+  return 'E' + d + '-' + seq;
+}
+
+async function issueExpense() {
+  const customerName = getSelectedExpCustomerName();
+  const honorific = document.getElementById('exp-honorific').value;
+  const subject = document.getElementById('exp-subject').value.trim();
+  const expenseDate = document.getElementById('exp-date').value;
+  const dueDate = document.getElementById('exp-due-date').value;
+  const notes = document.getElementById('exp-notes').value.trim();
+
+  if (!customerName) { showToast('顧客名を選択または入力してください', 'error'); return; }
+  if (!expenseDate) { showToast('請求日を入力してください', 'error'); return; }
+  if (currentExpenseItems.length === 0) { showToast('明細を追加してください', 'error'); return; }
+  for (const item of currentExpenseItems) {
+    if (!item.description.trim()) { showToast('内容が空の明細があります', 'error'); return; }
+    if (!item.amount || item.amount <= 0) { showToast('金額が0円の明細があります', 'error'); return; }
+  }
+
+  const total = currentExpenseItems.reduce((sum, i) => sum + (i.amount || 0), 0);
+  const expenseNumber = generateExpenseNumber(expenseDate);
+
+  const expense = {
+    id: generateId(),
+    expenseNumber,
+    customerName,
+    honorific,
+    subject,
+    expenseDate,
+    dueDate,
+    items: currentExpenseItems.map(item => ({
+      date: item.date,
+      description: item.description,
+      amount: item.amount,
+      receiptImage: item.receiptImage || null,
+      receiptFilename: item.receiptFilename || null
+    })),
+    total,
+    notes,
+    createdAt: Date.now()
+  };
+
+  const expenses = getExpenses();
+  expenses.push(expense);
+  setExpenses(expenses);
+  addCustomerIfNew(customerName);
+
+  try {
+    await generateExpensePDF(expense, getSettings());
+  } catch (err) {
+    console.error('経費PDF生成エラー:', err);
+    showToast('PDF生成中にエラーが発生しました', 'error');
+  }
+
+  // フォームリセット
+  currentExpenseItems = [];
+  document.getElementById('exp-customer-select').value = '';
+  document.getElementById('exp-customer-new').style.display = 'none';
+  document.getElementById('exp-customer-new').value = '';
+  document.getElementById('exp-subject').value = '';
+  document.getElementById('exp-notes').value = '';
+  document.getElementById('exp-due-date').value = '';
+  renderExpenseItems();
+  renderExpenseHistory();
+  showToast('経費請求を発行しました');
+}
+
+function renderExpenseHistory(search = '') {
+  const expenses = getExpenses();
+  const filtered = search
+    ? expenses.filter(e =>
+        (e.customerName || '').toLowerCase().includes(search.toLowerCase()) ||
+        (e.subject || '').toLowerCase().includes(search.toLowerCase()) ||
+        (e.expenseNumber || '').includes(search)
+      )
+    : expenses;
+  const sorted = filtered.slice().sort((a, b) => b.createdAt - a.createdAt);
+  const listEl = document.getElementById('expense-history-list');
+  const emptyEl = document.getElementById('expense-history-empty');
+
+  if (sorted.length === 0) {
+    listEl.innerHTML = '';
+    emptyEl.style.display = 'block';
+    return;
+  }
+  emptyEl.style.display = 'none';
+
+  listEl.innerHTML = sorted.map(e => `
+    <div class="history-card" style="display:flex;align-items:center;gap:10px;">
+      <input type="checkbox" class="exp-check" value="${e.id}" onchange="updateExpenseBulkBar()" onclick="event.stopPropagation()">
+      <div style="flex:1;cursor:pointer;" onclick="showExpenseDetail('${e.id}')">
+        <div class="hc-header">
+          <span class="hc-customer">${escapeHtml(e.customerName)} ${escapeHtml(e.honorific || '様')}</span>
+          <span class="hc-date">${e.expenseDate}</span>
+        </div>
+        <div class="hc-subject">${escapeHtml(e.subject)} (${e.expenseNumber})</div>
+        <div class="hc-total">${formatCurrency(e.total)}</div>
+      </div>
+      <div class="hc-status" onclick="event.stopPropagation()">
+        <label class="status-check"><input type="checkbox" ${e.sent ? 'checked' : ''} onchange="toggleExpenseFlag('${e.id}','sent',this.checked)"><span>送付</span></label>
+        <label class="status-check"><input type="checkbox" ${e.paid ? 'checked' : ''} onchange="toggleExpenseFlag('${e.id}','paid',this.checked)"><span>入金</span></label>
+      </div>
+    </div>
+  `).join('');
+  updateExpenseBulkBar();
+}
+
+function toggleExpenseFlag(id, flag, value) {
+  const expenses = getExpenses();
+  const e = expenses.find(x => x.id === id);
+  if (!e) return;
+  e[flag] = value;
+  setExpenses(expenses);
+}
+
+function updateExpenseBulkBar() {
+  const checked = document.querySelectorAll('.exp-check:checked');
+  const bar = document.getElementById('expense-bulk-bar');
+  const count = document.getElementById('expense-checked-count');
+  if (!bar) return;
+  if (checked.length > 0) {
+    bar.style.display = 'flex';
+    count.textContent = checked.length + '件選択中';
+  } else {
+    bar.style.display = 'none';
+  }
+}
+
+function bulkDeleteExpenses() {
+  const checked = document.querySelectorAll('.exp-check:checked');
+  if (checked.length === 0) return;
+  if (!confirm(`${checked.length}件の経費請求を削除しますか？\n\nこの操作は取り消せません。`)) return;
+  const ids = Array.from(checked).map(cb => cb.value);
+  setExpenses(getExpenses().filter(e => !ids.includes(e.id)));
+  showToast(`${ids.length}件の経費請求を削除しました`);
+  renderExpenseHistory(document.getElementById('expense-history-search').value);
+}
+
+let currentDetailExpenseId = null;
+
+function showExpenseDetail(id) {
+  const e = getExpenses().find(x => x.id === id);
+  if (!e) return;
+  currentDetailExpenseId = id;
+  document.getElementById('expense-detail-content').innerHTML = `
+    <div class="detail-row"><div class="detail-label">経費請求番号</div><div class="detail-value">${e.expenseNumber}</div></div>
+    <div class="detail-row"><div class="detail-label">宛先</div><div class="detail-value">${escapeHtml(e.customerName)} ${escapeHtml(e.honorific || '様')}</div></div>
+    <div class="detail-row"><div class="detail-label">件名</div><div class="detail-value">${escapeHtml(e.subject)}</div></div>
+    <div class="detail-row"><div class="detail-label">請求日</div><div class="detail-value">${e.expenseDate}</div></div>
+    <div class="detail-row"><div class="detail-label">入金期日</div><div class="detail-value">${e.dueDate || '未設定'}</div></div>
+    <div style="margin-top:12px;">
+      <table>
+        <thead><tr><th>日付</th><th>内容</th><th class="text-right">金額</th><th>領収書</th></tr></thead>
+        <tbody>
+          ${e.items.map((item, i) => `
+            <tr>
+              <td>${escapeHtml(item.date || '')}</td>
+              <td>${escapeHtml(item.description || '')}</td>
+              <td class="text-right">${formatCurrency(item.amount)}</td>
+              <td>${item.receiptImage ? `<img src="${item.receiptImage}" style="max-height:40px;cursor:pointer;" onclick="viewExpenseReceipt('${e.id}',${i})">` : '—'}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div class="summary-box" style="margin-top:12px;">
+      <div class="summary-row total"><span>請求金額</span><span>${formatCurrency(e.total)}</span></div>
+    </div>
+    ${e.notes ? `<div style="margin-top:12px;"><strong>備考:</strong><p style="margin-top:4px;font-size:0.9rem;">${escapeHtml(e.notes)}</p></div>` : ''}
+  `;
+  openModal('modal-expense-detail');
+}
+
+function viewExpenseReceipt(expenseId, itemIdx) {
+  const e = getExpenses().find(x => x.id === expenseId);
+  if (!e) return;
+  const item = e.items[itemIdx];
+  if (!item || !item.receiptImage) return;
+  const w = window.open('');
+  w.document.write(`<img src="${item.receiptImage}" style="max-width:100%;">`);
+}
+
+function deleteExpense() {
+  if (!currentDetailExpenseId) return;
+  const e = getExpenses().find(x => x.id === currentDetailExpenseId);
+  if (!e) return;
+  if (!confirm(`経費請求「${e.expenseNumber}」を削除しますか？\n\nこの操作は取り消せません。`)) return;
+  setExpenses(getExpenses().filter(x => x.id !== currentDetailExpenseId));
+  currentDetailExpenseId = null;
+  closeModal('modal-expense-detail');
+  renderExpenseHistory();
+  showToast('経費請求を削除しました');
+}
+
+async function reissueExpense() {
+  if (!currentDetailExpenseId) return;
+  const e = getExpenses().find(x => x.id === currentDetailExpenseId);
+  if (!e) return;
+  try {
+    await generateExpensePDF(e, getSettings());
+    showToast('PDFを再発行しました');
+  } catch (err) {
+    console.error('経費PDF再発行エラー:', err);
+    showToast('PDF再発行中にエラーが発生しました', 'error');
+  }
+  closeModal('modal-expense-detail');
+}

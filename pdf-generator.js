@@ -437,3 +437,294 @@ async function buildPDF(invoice, settings, tryJapanese) {
   doc.save(filename);
   showToast('PDF\u3092\u30C0\u30A6\u30F3\u30ED\u30FC\u30C9\u3057\u307E\u3057\u305F', 'success');
 }
+
+
+// ===================================================
+// 経費請求書PDF生成
+// ===================================================
+async function generateExpensePDF(expense, settings) {
+  if (!window.jspdf) {
+    showToast('jsPDFライブラリが読み込まれていません', 'error');
+    throw new Error('jsPDF not loaded');
+  }
+  showToast('PDF生成中...', 'info');
+  try {
+    await buildExpensePDF(expense, settings, true);
+    return;
+  } catch (err) {
+    console.error('[経費PDF] 日本語フォント失敗:', err);
+  }
+  try {
+    showToast('標準フォントで生成中...', 'info');
+    await buildExpensePDF(expense, settings, false);
+  } catch (err2) {
+    console.error('[経費PDF] フォールバック失敗:', err2);
+    showToast('PDF生成に失敗しました: ' + err2.message, 'error');
+    throw err2;
+  }
+}
+
+async function buildExpensePDF(expense, settings, tryJapanese) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+  let fontName = 'helvetica';
+  let hasBold = true;
+  if (tryJapanese) {
+    await loadJapaneseFont(doc);
+    const fl = doc.getFontList();
+    if (fl['MPLUS1p']) {
+      fontName = 'MPLUS1p';
+      hasBold = !!(fl['MPLUS1p'] && fl['MPLUS1p'].indexOf('bold') >= 0);
+    } else {
+      throw new Error('Font not registered');
+    }
+  }
+
+  const pageWidth = 210;
+  const pageHeight = 297;
+  const marginLeft = 20;
+  const contentWidth = pageWidth - marginLeft - 20;
+
+  const setFont = (style, size) => {
+    try {
+      if (style === 'bold' && fontName !== 'helvetica' && !hasBold) {
+        doc.setFont(fontName, 'normal');
+      } else {
+        doc.setFont(fontName, style);
+      }
+    } catch(e) {
+      doc.setFont('helvetica', style === 'bold' ? 'bold' : 'normal');
+    }
+    doc.setFontSize(size);
+  };
+  const drawLine = (x1, y1, x2, y2, w) => {
+    doc.setLineWidth(w || 0.3);
+    doc.setDrawColor(0);
+    doc.line(x1, y1, x2, y2);
+  };
+  const fmtN = (n) => Number(n).toLocaleString('ja-JP');
+
+  let y = 25;
+  setFont('bold', 22);
+  doc.text('立替明細書', pageWidth / 2, y, { align: 'center' });
+  y += 18;
+
+  setFont('bold', 14);
+  const honorific = expense.honorific || '様';
+  doc.text((expense.customerName || '') + ' ' + honorific, marginLeft, y);
+
+  const rc = 130;
+  setFont('normal', 9);
+  doc.text('請求日', rc, y - 6);
+  doc.text(expense.expenseDate || '', rc + 30, y - 6);
+  doc.text('経費請求番号', rc, y);
+  doc.text(expense.expenseNumber || '', rc + 30, y);
+
+  y += 20;
+  const cx = 135;
+  setFont('bold', 10);
+  doc.text(settings.companyName || '', cx, y);
+  if (settings.logoImage) {
+    try {
+      const fmt = settings.logoImage.includes('image/png') ? 'PNG' : 'JPEG';
+      doc.addImage(settings.logoImage, fmt, 175, y - 8, 18, 18);
+    } catch (e) {}
+  }
+  setFont('normal', 9);
+  y += 5; doc.text(settings.representativeName || '', cx, y);
+  y += 5; doc.text(settings.postalCode || '', cx, y);
+  y += 5; doc.text(settings.address || '', cx, y);
+  y += 5;
+
+  setFont('normal', 10);
+  doc.text('下記の通りご立替分をご請求申し上げます。', marginLeft, y);
+  y += 7;
+
+  setFont('bold', 11);
+  doc.text('件名', marginLeft, y);
+  setFont('normal', 11);
+  doc.text(expense.subject || '', marginLeft + 20, y);
+  y += 5;
+
+  // 請求金額ボックス
+  const summaryW = Math.round(contentWidth * 2 / 5);
+  const sy = y;
+  const summaryH = 14;
+  drawLine(marginLeft, sy, marginLeft + summaryW, sy);
+  setFont('normal', 8);
+  doc.text('請求金額（合計）', marginLeft + summaryW / 2, sy + 4.5, { align: 'center' });
+  drawLine(marginLeft, sy + 6, marginLeft + summaryW, sy + 6);
+  setFont('bold', 14);
+  doc.text(fmtN(expense.total) + '円', marginLeft + summaryW / 2, sy + 12, { align: 'center' });
+  drawLine(marginLeft, sy, marginLeft, sy + summaryH);
+  drawLine(marginLeft + summaryW, sy, marginLeft + summaryW, sy + summaryH);
+  drawLine(marginLeft, sy + summaryH, marginLeft + summaryW, sy + summaryH);
+  y = sy + summaryH + 3;
+
+  // 入金期日・振込先
+  const payW = summaryW;
+  const py = y;
+  const dueDateColW = 35;
+  drawLine(marginLeft, py, marginLeft + payW, py);
+  setFont('normal', 8);
+  doc.text('入金期日', marginLeft + dueDateColW / 2, py + 4.5, { align: 'center' });
+  doc.text('振込先', marginLeft + dueDateColW + (payW - dueDateColW) / 2, py + 4.5, { align: 'center' });
+  drawLine(marginLeft, py + 6, marginLeft + payW, py + 6);
+  drawLine(marginLeft + dueDateColW, py, marginLeft + dueDateColW, py + 6);
+  setFont('normal', 9);
+  doc.text(expense.dueDate || '', marginLeft + dueDateColW / 2, py + 11, { align: 'center' });
+  setFont('normal', 7.5);
+  let bankY = py + 10;
+  (settings.bankAccounts || []).forEach(bank => {
+    doc.text(bank.bankName + ' ' + bank.branchName, marginLeft + dueDateColW + 3, bankY);
+    bankY += 3.5;
+    doc.text('　' + bank.accountType + ' ' + bank.accountNumber + ' ' + bank.accountHolder, marginLeft + dueDateColW + 3, bankY);
+    bankY += 4;
+  });
+  const payEndY = Math.max(py + 14, bankY);
+  drawLine(marginLeft + dueDateColW, py + 6, marginLeft + dueDateColW, payEndY);
+  drawLine(marginLeft, py, marginLeft, payEndY);
+  drawLine(marginLeft + payW, py, marginLeft + payW, payEndY);
+  drawLine(marginLeft, payEndY, marginLeft + payW, payEndY);
+  y = payEndY + 6;
+
+  // 明細テーブル
+  const items = expense.items || [];
+  const colDate = marginLeft;
+  const colDesc = marginLeft + 25;
+  const colAmount = marginLeft + 130;
+  const tableRight = marginLeft + contentWidth;
+  const rowH = 7;
+  const headerH = 8;
+
+  function drawHeader(yPos) {
+    setFont('bold', 8);
+    doc.setFillColor(245, 245, 245);
+    doc.rect(colDate, yPos, contentWidth, headerH, 'F');
+    drawLine(colDate, yPos, tableRight, yPos);
+    doc.text('日付', colDate + 3, yPos + 5.5);
+    doc.text('内容', colDesc + 3, yPos + 5.5);
+    doc.text('金額', colAmount + 3, yPos + 5.5);
+    drawLine(colDate, yPos, colDate, yPos + headerH);
+    drawLine(colDesc, yPos, colDesc, yPos + headerH);
+    drawLine(colAmount, yPos, colAmount, yPos + headerH);
+    drawLine(tableRight, yPos, tableRight, yPos + headerH);
+    drawLine(colDate, yPos + headerH, tableRight, yPos + headerH);
+    return yPos + headerH;
+  }
+
+  function drawRow(yPos, item) {
+    setFont('normal', 9);
+    let desc = item.description || '';
+    const maxW = colAmount - colDesc - 6;
+    while (desc.length > 1 && doc.getTextWidth(desc) > maxW) {
+      desc = desc.slice(0, -1);
+    }
+    doc.text(item.date || '', colDate + 3, yPos + 5);
+    doc.text(desc, colDesc + 3, yPos + 5);
+    doc.text(fmtN(item.amount), tableRight - 3, yPos + 5, { align: 'right' });
+    drawLine(colDate, yPos, colDate, yPos + rowH);
+    drawLine(colDesc, yPos, colDesc, yPos + rowH);
+    drawLine(colAmount, yPos, colAmount, yPos + rowH);
+    drawLine(tableRight, yPos, tableRight, yPos + rowH);
+    drawLine(colDate, yPos + rowH, tableRight, yPos + rowH);
+    return yPos + rowH;
+  }
+
+  y = drawHeader(y);
+  let itemIdx = 0;
+  while (itemIdx < items.length) {
+    y = drawRow(y, items[itemIdx]);
+    itemIdx++;
+    if (y > pageHeight - 45 && itemIdx < items.length) break;
+  }
+  let totalPages = 1;
+  while (itemIdx < items.length) {
+    doc.addPage();
+    totalPages++;
+    setFont('normal', 9);
+    doc.text('経費請求番号', 130, 15);
+    doc.text(expense.expenseNumber || '', 165, 15);
+    y = drawHeader(25);
+    while (itemIdx < items.length) {
+      y = drawRow(y, items[itemIdx]);
+      itemIdx++;
+      if (y > pageHeight - 50 && itemIdx < items.length) break;
+    }
+  }
+
+  // 合計行
+  y += 3;
+  setFont('bold', 10);
+  doc.text('合計', colDesc + 3, y + 5);
+  doc.text(fmtN(expense.total) + '円', tableRight - 3, y + 5, { align: 'right' });
+
+  // 備考
+  y += 15;
+  setFont('bold', 9);
+  doc.text('備考', marginLeft + 5, y);
+  drawLine(marginLeft, y + 2, marginLeft + contentWidth, y + 2);
+  y += 8;
+  if (expense.notes) {
+    setFont('normal', 9);
+    const noteLines = doc.splitTextToSize(expense.notes, contentWidth - 10);
+    doc.text(noteLines, marginLeft + 5, y);
+  }
+
+  // 領収書添付ページ
+  const receiptItems = items.filter(it => it.receiptImage);
+  if (receiptItems.length > 0) {
+    doc.addPage();
+    totalPages++;
+    setFont('bold', 14);
+    doc.text('領収書', pageWidth / 2, 20, { align: 'center' });
+    let ry = 30;
+    for (const it of receiptItems) {
+      setFont('normal', 9);
+      const label = (it.date || '') + '  ' + (it.description || '') + '  ' + fmtN(it.amount) + '円';
+      doc.text(label, marginLeft, ry);
+      ry += 4;
+      try {
+        const fmt = it.receiptImage.includes('image/png') ? 'PNG' : 'JPEG';
+        const props = doc.getImageProperties(it.receiptImage);
+        const maxW = contentWidth;
+        const maxH = 80;
+        let iw = props.width, ih = props.height;
+        const ratio = Math.min(maxW / iw, maxH / ih);
+        iw = iw * ratio;
+        ih = ih * ratio;
+        if (ry + ih > pageHeight - 15) {
+          doc.addPage();
+          totalPages++;
+          ry = 20;
+        }
+        doc.addImage(it.receiptImage, fmt, marginLeft, ry, iw, ih);
+        ry += ih + 8;
+      } catch (e) {
+        setFont('normal', 8);
+        doc.text('(画像読み込み失敗)', marginLeft, ry);
+        ry += 8;
+      }
+    }
+  }
+
+  // ページ番号
+  for (let p = 1; p <= totalPages; p++) {
+    doc.setPage(p);
+    setFont('normal', 8);
+    doc.text(p + ' / ' + totalPages, pageWidth / 2, pageHeight - 10, { align: 'center' });
+  }
+
+  // ファイル名
+  const fileHonorific = expense.honorific || '様';
+  const statusTags = [];
+  if (!expense.sent) statusTags.push('未送');
+  if (!expense.paid) statusTags.push('未収');
+  const statusPrefix = statusTags.length > 0 ? '[' + statusTags.join('・') + ']' : '';
+  const filename = statusPrefix + (expense.customerName || 'customer') + fileHonorific + '_' +
+    (expense.subject || 'expense') + '_立替明細書_' +
+    (expense.expenseNumber || 'draft') + '.pdf';
+  doc.save(filename);
+  showToast('PDFをダウンロードしました', 'success');
+}

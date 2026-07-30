@@ -49,6 +49,7 @@
   <button class="tab-btn" data-tab="inventory">在庫管理</button>
   <button class="tab-btn" data-tab="create">請求書作成</button>
   <button class="tab-btn" data-tab="history">請求書履歴</button>
+  <button class="tab-btn" data-tab="expense">経費請求</button>
   <button class="tab-btn" data-tab="sales">販売履歴</button>
   <button class="tab-btn" data-tab="settings">設定</button>
   <button class="tab-btn" data-tab="backup">バックアップ</button>
@@ -220,6 +221,87 @@
     <div id="history-empty" class="empty-state" style="display:none;">
       <div class="empty-icon">📄</div>
       <p>発行済みの請求書はありません。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Expense Reimbursement (経費請求) ===== -->
+<section id="page-expense" class="page">
+  <div class="card">
+    <h2>経費請求（立替明細書）</h2>
+    <div class="form-row">
+      <div class="form-group">
+        <label>宛先（顧客名）</label>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <select class="form-control" id="exp-customer-select" onchange="onExpCustomerSelectChange()" style="flex:1;">
+            <option value="">-- 顧客を選択 --</option>
+            <option value="__new__">+ 新規顧客を入力</option>
+          </select>
+          <select class="form-control" id="exp-honorific" style="width:80px;">
+            <option value="様">様</option>
+            <option value="御中">御中</option>
+          </select>
+        </div>
+        <input type="text" class="form-control" id="exp-customer-new" placeholder="新規顧客名を入力" style="display:none;margin-top:6px;">
+      </div>
+      <div class="form-group">
+        <label>件名</label>
+        <input type="text" class="form-control" id="exp-subject" placeholder="例: 遠征交通費立替">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>請求日</label>
+        <input type="date" class="form-control" id="exp-date">
+      </div>
+      <div class="form-group">
+        <label>入金期日</label>
+        <input type="date" class="form-control" id="exp-due-date">
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>立替明細</h3>
+    <div class="toolbar">
+      <button class="btn btn-outline btn-sm" onclick="addExpenseItem()">+ 明細を追加</button>
+    </div>
+    <div id="expense-items-list"></div>
+    <div id="expense-items-empty" class="empty-state">
+      <p>明細を追加してください</p>
+    </div>
+    <div class="summary-box">
+      <div class="summary-row total">
+        <span>請求金額（合計）</span>
+        <span id="exp-total">0円</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="form-group">
+      <label>備考</label>
+      <textarea class="form-control" id="exp-notes" placeholder="備考を入力..."></textarea>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:8px;margin-top:12px;">
+    <button class="btn btn-primary btn-block" onclick="issueExpense()">経費請求を発行（PDF生成）</button>
+  </div>
+
+  <div class="card">
+    <h2>経費請求履歴</h2>
+    <div class="toolbar">
+      <input type="text" class="form-control search-input" id="expense-history-search" placeholder="顧客名・件名で検索..." oninput="renderExpenseHistory(this.value)">
+    </div>
+    <div id="expense-bulk-bar" class="bulk-bar" style="display:none;">
+      <span id="expense-checked-count">0件選択中</span>
+      <button class="btn btn-danger btn-sm" onclick="bulkDeleteExpenses()">選択した経費請求を削除</button>
+    </div>
+    <div id="expense-history-list"></div>
+    <div id="expense-history-empty" class="empty-state" style="display:none;">
+      <div class="empty-icon">🧾</div>
+      <p>発行済みの経費請求はありません。</p>
     </div>
   </div>
 </section>
@@ -510,6 +592,21 @@
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeModal('modal-invoice-edit')">キャンセル</button>
       <button class="btn btn-primary" onclick="saveEditedInvoice()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Expense Detail Modal -->
+<div class="modal-overlay" id="modal-expense-detail">
+  <div class="modal" style="max-width:600px;max-height:90vh;overflow-y:auto;">
+    <h3>経費請求詳細</h3>
+    <div id="expense-detail-content"></div>
+    <div class="modal-actions" style="justify-content:space-between;">
+      <button class="btn btn-danger" onclick="deleteExpense()">削除</button>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button class="btn btn-outline" onclick="closeModal('modal-expense-detail')">閉じる</button>
+        <button class="btn btn-primary" onclick="reissueExpense()">再発行（PDF）</button>
+      </div>
     </div>
   </div>
 </div>

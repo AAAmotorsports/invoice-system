@@ -48,6 +48,7 @@ function startRealtimeSync() {
         if (remoteData.settings_json) localStorage.setItem(STORAGE_KEYS.settings, remoteData.settings_json);
         if (remoteData.customers_json) localStorage.setItem(STORAGE_KEYS.customers, remoteData.customers_json);
         if (remoteData.purchases_json) localStorage.setItem(STORAGE_KEYS.purchases, remoteData.purchases_json);
+        if (remoteData.expenses_json) localStorage.setItem(STORAGE_KEYS.expenses, remoteData.expenses_json);
         localStorage.setItem('invoice_sys_savedAt', remoteSavedAt);
         // オーバーレイを閉じる
         const overlay = document.getElementById('data-load-overlay');
@@ -86,13 +87,14 @@ async function pushToFirestore() {
 
   const savedAt = new Date().toISOString();
   const data = {
-    version: 4,
+    version: 5,
     savedAt: savedAt,
     inventory_json: JSON.stringify(getInventory()),
     invoices_json: JSON.stringify(getInvoices()),
     settings_json: JSON.stringify(getSettings()),
     customers_json: JSON.stringify(getCustomers()),
-    purchases_json: JSON.stringify(getPurchases())
+    purchases_json: JSON.stringify(getPurchases()),
+    expenses_json: JSON.stringify(getExpenses())
   };
 
   try {
@@ -166,6 +168,11 @@ async function initialSync() {
           localStorage.setItem(STORAGE_KEYS.purchases, remoteData.purchases_json);
         } else if (remoteData.purchases) {
           localStorage.setItem(STORAGE_KEYS.purchases, JSON.stringify(remoteData.purchases));
+        }
+        if (remoteData.expenses_json) {
+          localStorage.setItem(STORAGE_KEYS.expenses, remoteData.expenses_json);
+        } else if (remoteData.expenses) {
+          localStorage.setItem(STORAGE_KEYS.expenses, JSON.stringify(remoteData.expenses));
         }
         localStorage.setItem('invoice_sys_savedAt', remoteSavedAt);
         const overlay = document.getElementById('data-load-overlay');
