@@ -2320,7 +2320,7 @@ function renderExpenseItems() {
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         <label class="btn btn-outline btn-sm" style="margin:0;cursor:pointer;">
           ${item.receiptImage ? '📷 領収書を変更' : '📷 領収書を添付'}
-          <input type="file" accept="image/*" onchange="uploadReceiptImage(event, ${idx})" style="display:none;">
+          <input type="file" accept="image/*,application/pdf,.pdf" onchange="uploadReceiptImage(event, ${idx})" style="display:none;">
         </label>
         ${item.receiptImage ? `
           <img src="${item.receiptImage}" style="max-height:60px;border:1px solid var(--border);border-radius:4px;cursor:pointer;" onclick="showReceiptPreview('${item.id}')">
@@ -2355,25 +2355,23 @@ function moveExpenseItem(idx, dir) {
 function uploadReceiptImage(event, idx) {
   const file = event.target.files[0];
   if (!file) return;
+
+  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+  if (isPdf) {
+    handlePdfReceipt(file, idx);
+  } else {
+    handleImageReceipt(file, idx);
+  }
+  event.target.value = '';
+}
+
+function handleImageReceipt(file, idx) {
   const reader = new FileReader();
   reader.onload = function(e) {
     const img = new Image();
     img.onload = function() {
-      // 最大1000px、JPEG 75%で圧縮
-      const MAX_SIZE = 1000;
-      let w = img.width, h = img.height;
-      if (w > MAX_SIZE || h > MAX_SIZE) {
-        if (w > h) { h = Math.round(h * MAX_SIZE / w); w = MAX_SIZE; }
-        else { w = Math.round(w * MAX_SIZE / h); h = MAX_SIZE; }
-      }
-      const canvas = document.createElement('canvas');
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext('2d');
-      ctx.fillStyle = '#fff';
-      ctx.fillRect(0, 0, w, h);
-      ctx.drawImage(img, 0, 0, w, h);
-      currentExpenseItems[idx].receiptImage = canvas.toDataURL('image/jpeg', 0.75);
+      const compressed = compressImageDataURL(img, 1000, 0.75);
+      currentExpenseItems[idx].receiptImage = compressed;
       currentExpenseItems[idx].receiptFilename = file.name;
       renderExpenseItems();
       showToast('領収書を添付しました');
@@ -2381,7 +2379,81 @@ function uploadReceiptImage(event, idx) {
     img.src = e.target.result;
   };
   reader.readAsDataURL(file);
-  event.target.value = '';
+}
+
+function compressImageDataURL(img, maxSize, quality) {
+  let w = img.width, h = img.height;
+  if (w > maxSize || h > maxSize) {
+    if (w > h) { h = Math.round(h * maxSize / w); w = maxSize; }
+    else { w = Math.round(w * maxSize / h); h = maxSize; }
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(img, 0, 0, w, h);
+  return canvas.toDataURL('image/jpeg', quality);
+}
+
+async function handlePdfReceipt(file, idx) {
+  showToast('PDFを読み込み中...', 'info');
+  try {
+    await loadPdfJsIfNeeded();
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const page = await pdf.getPage(1);
+    // 高解像度でレンダリング
+    const viewport = page.getViewport({ scale: 2 });
+    const canvas = document.createElement('canvas');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+    // 1000px以内に圧縮
+    const img = new Image();
+    img.onload = function() {
+      const compressed = compressImageDataURL(img, 1000, 0.75);
+      currentExpenseItems[idx].receiptImage = compressed;
+      currentExpenseItems[idx].receiptFilename = file.name;
+      const pages = pdf.numPages;
+      renderExpenseItems();
+      if (pages > 1) {
+        showToast(`PDFの1ページ目を添付（${pages}ページ中）`, 'info');
+      } else {
+        showToast('領収書PDFを添付しました');
+      }
+    };
+    img.src = canvas.toDataURL('image/jpeg', 0.9);
+  } catch (err) {
+    console.error('PDF読込エラー:', err);
+    showToast('PDF読込に失敗しました: ' + err.message, 'error');
+  }
+}
+
+let pdfJsLoadPromise = null;
+function loadPdfJsIfNeeded() {
+  if (window.pdfjsLib) return Promise.resolve();
+  if (pdfJsLoadPromise) return pdfJsLoadPromise;
+  pdfJsLoadPromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    script.onload = () => {
+      if (window.pdfjsLib) {
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+          'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        resolve();
+      } else {
+        reject(new Error('pdf.js could not be loaded'));
+      }
+    };
+    script.onerror = () => reject(new Error('pdf.js failed to load (ネット接続を確認してください)'));
+    document.head.appendChild(script);
+  });
+  return pdfJsLoadPromise;
 }
 
 function removeReceiptImage(idx) {
