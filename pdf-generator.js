@@ -562,32 +562,20 @@ async function buildExpensePDF(expense, settings, tryJapanese) {
   drawLine(marginLeft, sy + summaryH, marginLeft + summaryW, sy + summaryH);
   y = sy + summaryH + 3;
 
-  // 入金期日・振込先
-  const payW = summaryW;
+  // 入金期日のみ（振込先は経費立替明細には不要）
+  const dueW = 60;
   const py = y;
-  const dueDateColW = 35;
-  drawLine(marginLeft, py, marginLeft + payW, py);
+  const dueH = 14;
+  drawLine(marginLeft, py, marginLeft + dueW, py);
   setFont('normal', 8);
-  doc.text('入金期日', marginLeft + dueDateColW / 2, py + 4.5, { align: 'center' });
-  doc.text('振込先', marginLeft + dueDateColW + (payW - dueDateColW) / 2, py + 4.5, { align: 'center' });
-  drawLine(marginLeft, py + 6, marginLeft + payW, py + 6);
-  drawLine(marginLeft + dueDateColW, py, marginLeft + dueDateColW, py + 6);
+  doc.text('入金期日', marginLeft + dueW / 2, py + 4.5, { align: 'center' });
+  drawLine(marginLeft, py + 6, marginLeft + dueW, py + 6);
   setFont('normal', 9);
-  doc.text(expense.dueDate || '', marginLeft + dueDateColW / 2, py + 11, { align: 'center' });
-  setFont('normal', 7.5);
-  let bankY = py + 10;
-  (settings.bankAccounts || []).forEach(bank => {
-    doc.text(bank.bankName + ' ' + bank.branchName, marginLeft + dueDateColW + 3, bankY);
-    bankY += 3.5;
-    doc.text('　' + bank.accountType + ' ' + bank.accountNumber + ' ' + bank.accountHolder, marginLeft + dueDateColW + 3, bankY);
-    bankY += 4;
-  });
-  const payEndY = Math.max(py + 14, bankY);
-  drawLine(marginLeft + dueDateColW, py + 6, marginLeft + dueDateColW, payEndY);
-  drawLine(marginLeft, py, marginLeft, payEndY);
-  drawLine(marginLeft + payW, py, marginLeft + payW, payEndY);
-  drawLine(marginLeft, payEndY, marginLeft + payW, payEndY);
-  y = payEndY + 6;
+  doc.text(expense.dueDate || '', marginLeft + dueW / 2, py + 11, { align: 'center' });
+  drawLine(marginLeft, py, marginLeft, py + dueH);
+  drawLine(marginLeft + dueW, py, marginLeft + dueW, py + dueH);
+  drawLine(marginLeft, py + dueH, marginLeft + dueW, py + dueH);
+  y = py + dueH + 6;
 
   // 明細テーブル
   const items = expense.items || [];
