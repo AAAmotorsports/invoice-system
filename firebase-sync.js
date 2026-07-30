@@ -45,7 +45,17 @@ function startRealtimeSync() {
         isSyncingFromFirestore = true;
         if (remoteData.inventory_json) localStorage.setItem(STORAGE_KEYS.inventory, remoteData.inventory_json);
         if (remoteData.invoices_json) localStorage.setItem(STORAGE_KEYS.invoices, remoteData.invoices_json);
-        if (remoteData.settings_json) localStorage.setItem(STORAGE_KEYS.settings, remoteData.settings_json);
+        if (remoteData.settings_json) {
+          // APIキーはローカルのを保持
+          try {
+            const remoteSettings = JSON.parse(remoteData.settings_json);
+            const localApiKey = (JSON.parse(localStorage.getItem(STORAGE_KEYS.settings) || '{}')).anthropicApiKey || '';
+            remoteSettings.anthropicApiKey = localApiKey;
+            localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(remoteSettings));
+          } catch(e) {
+            localStorage.setItem(STORAGE_KEYS.settings, remoteData.settings_json);
+          }
+        }
         if (remoteData.customers_json) localStorage.setItem(STORAGE_KEYS.customers, remoteData.customers_json);
         if (remoteData.purchases_json) localStorage.setItem(STORAGE_KEYS.purchases, remoteData.purchases_json);
         if (remoteData.expenses_json) localStorage.setItem(STORAGE_KEYS.expenses, remoteData.expenses_json);
@@ -86,12 +96,15 @@ async function pushToFirestore() {
   if (isSyncingFromFirestore) return;
 
   const savedAt = new Date().toISOString();
+  // 設定から APIキーを除外して同期（各端末で個別に保管）
+  const settingsForSync = { ...getSettings() };
+  delete settingsForSync.anthropicApiKey;
   const data = {
     version: 5,
     savedAt: savedAt,
     inventory_json: JSON.stringify(getInventory()),
     invoices_json: JSON.stringify(getInvoices()),
-    settings_json: JSON.stringify(getSettings()),
+    settings_json: JSON.stringify(settingsForSync),
     customers_json: JSON.stringify(getCustomers()),
     purchases_json: JSON.stringify(getPurchases()),
     expenses_json: JSON.stringify(getExpenses())

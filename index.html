@@ -83,6 +83,10 @@
       </select>
       <button class="btn btn-primary" onclick="showAddItemModal()">+ 商品追加</button>
       <button class="btn btn-outline" onclick="showStockLog()">入庫ログ</button>
+      <label class="btn btn-outline" style="margin:0;cursor:pointer;">
+        🤖 納品書から取込
+        <input type="file" accept="image/*,application/pdf,.pdf" onchange="scanDeliverySlip(event)" style="display:none;">
+      </label>
       <div class="file-input-wrap">
         <button class="btn btn-outline">CSVインポート</button>
         <input type="file" accept=".csv" onchange="importCSV(event)">
@@ -389,6 +393,28 @@
   </div>
 
   <div class="card">
+    <h2>AI機能（オプション）</h2>
+    <p style="font-size:0.85rem;color:var(--text-light);margin-bottom:10px;">
+      Anthropic Claude Vision API を使って領収書・納品書から金額や商品を自動抽出します。<br>
+      APIキーは<strong>この端末にのみ保存</strong>され、他端末には同期されません。<br>
+      キー取得: <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>（有料・使った分だけ課金）
+    </p>
+    <div class="form-group">
+      <label>Anthropic API キー（sk-ant-... の形式）</label>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <input type="password" class="form-control" id="set-anthropic-key" placeholder="sk-ant-api03-..." style="flex:1;">
+        <button class="btn btn-outline btn-sm" type="button" onclick="toggleApiKeyVisibility()">表示</button>
+      </div>
+      <div id="anthropic-key-status" style="font-size:0.8rem;margin-top:4px;color:var(--text-light);"></div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="btn btn-primary" onclick="saveApiKey()">APIキーを保存</button>
+      <button class="btn btn-outline" onclick="testApiKey()">接続テスト</button>
+      <button class="btn btn-danger" onclick="clearApiKey()">キーを削除</button>
+    </div>
+  </div>
+
+  <div class="card">
     <h2>顧客リスト</h2>
     <p style="font-size:0.85rem;color:var(--text-light);margin-bottom:10px;">請求書発行時に自動登録されます。手動追加・削除も可能です。</p>
     <div id="customer-list"></div>
@@ -592,6 +618,32 @@
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeModal('modal-invoice-edit')">キャンセル</button>
       <button class="btn btn-primary" onclick="saveEditedInvoice()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Delivery Slip Import Preview Modal -->
+<div class="modal-overlay" id="modal-delivery-slip">
+  <div class="modal" style="max-width:720px;max-height:90vh;overflow-y:auto;">
+    <h3>納品書から取込（プレビュー）</h3>
+    <p style="font-size:0.85rem;color:var(--text-light);">AIが読み取った内容を確認・編集してから在庫に反映してください。</p>
+    <div class="form-row">
+      <div class="form-group">
+        <label>納品日</label>
+        <input type="date" class="form-control" id="ds-date">
+      </div>
+      <div class="form-group">
+        <label>納品書番号（任意）</label>
+        <input type="text" class="form-control" id="ds-slip-number">
+      </div>
+    </div>
+    <div id="ds-items-list"></div>
+    <div style="margin-top:8px;">
+      <button class="btn btn-outline btn-sm" onclick="addDsItem()">+ 行を追加</button>
+    </div>
+    <div class="modal-actions" style="justify-content:space-between;">
+      <button class="btn btn-outline" onclick="closeModal('modal-delivery-slip')">キャンセル</button>
+      <button class="btn btn-primary" onclick="applyDeliverySlip()">在庫に反映</button>
     </div>
   </div>
 </div>

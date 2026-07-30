@@ -24,7 +24,8 @@ const DEFAULT_SETTINGS = {
     { id: '3', bankName: 'PayPay銀行', branchName: 'ｽｽﾞﾒ支店 (002)', accountType: '普通', accountNumber: '3215096', accountHolder: 'ﾌｸｵｶｷｯｽﾞｶ−ﾄｱｶﾃﾞﾐ−' }
   ],
   taxRate: 10,
-  logoImage: ''
+  logoImage: '',
+  anthropicApiKey: '' // AI機能用（ローカル端末にのみ保存、Firebase同期対象外）
 };
 
 function loadData(key) {
@@ -1812,6 +1813,79 @@ function loadSettingsForm() {
 
   renderBankAccounts(s);
   renderCustomerList();
+  refreshApiKeyStatus();
+}
+
+function refreshApiKeyStatus() {
+  const s = getSettings();
+  const input = document.getElementById('set-anthropic-key');
+  const status = document.getElementById('anthropic-key-status');
+  if (!input || !status) return;
+  input.value = s.anthropicApiKey || '';
+  if (s.anthropicApiKey) {
+    const masked = s.anthropicApiKey.slice(0, 10) + '...' + s.anthropicApiKey.slice(-4);
+    status.innerHTML = `✅ 設定済み（${masked}）`;
+    status.style.color = '#27ae60';
+  } else {
+    status.textContent = '未設定 - AI機能は使えません';
+    status.style.color = '#999';
+  }
+}
+
+function toggleApiKeyVisibility() {
+  const input = document.getElementById('set-anthropic-key');
+  input.type = input.type === 'password' ? 'text' : 'password';
+}
+
+function saveApiKey() {
+  const key = document.getElementById('set-anthropic-key').value.trim();
+  if (key && !key.startsWith('sk-ant-')) {
+    if (!confirm('sk-ant-で始まっていませんが、このまま保存しますか？')) return;
+  }
+  const s = getSettings();
+  s.anthropicApiKey = key;
+  setSettings(s);
+  refreshApiKeyStatus();
+  showToast('APIキーを保存しました');
+}
+
+function clearApiKey() {
+  if (!confirm('APIキーを削除しますか？AI機能が使えなくなります。')) return;
+  const s = getSettings();
+  s.anthropicApiKey = '';
+  setSettings(s);
+  refreshApiKeyStatus();
+  showToast('APIキーを削除しました');
+}
+
+async function testApiKey() {
+  const key = document.getElementById('set-anthropic-key').value.trim();
+  if (!key) { showToast('APIキーを入力してください', 'error'); return; }
+  showToast('接続テスト中...', 'info');
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'anthropic-version': '2023-06-01',
+        'x-api-key': key,
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 20,
+        messages: [{ role: 'user', content: 'ping' }]
+      })
+    });
+    const data = await res.json();
+    if (data.error) {
+      showToast('エラー: ' + data.error.message, 'error');
+    } else {
+      showToast('✅ 接続OK！AI機能が使えます');
+    }
+  } catch (err) {
+    showToast('通信エラー: ' + err.message, 'error');
+  }
 }
 
 function saveSettings() {
@@ -2324,6 +2398,7 @@ function renderExpenseItems() {
         </label>
         ${item.receiptImage ? `
           <img src="${item.receiptImage}" style="max-height:60px;border:1px solid var(--border);border-radius:4px;cursor:pointer;" onclick="showReceiptPreview('${item.id}')">
+          <button class="btn btn-primary btn-sm" onclick="extractReceiptWithAI(${idx})" title="AIで金額・日付を自動抽出">🤖 AIで抽出</button>
           <button class="btn btn-outline btn-sm" onclick="removeReceiptImage(${idx})">画像削除</button>
         ` : ''}
       </div>
@@ -2685,4 +2760,298 @@ async function reissueExpense() {
     showToast('PDF再発行中にエラーが発生しました', 'error');
   }
   closeModal('modal-expense-detail');
+}
+
+
+// ===================================================
+// AI VISION (Claude API 経由での領収書・納品書 OCR)
+// ===================================================
+
+// base64画像とプロンプトを送って構造化データを取得
+async function callClaudeVision(dataUrl, prompt, maxTokens = 2048) {
+  const settings = getSettings();
+  if (!settings.anthropicApiKey) {
+    throw new Error('APIキーが設定されていません（設定タブで登録してください）');
+  }
+  const commaIdx = dataUrl.indexOf(',');
+  const mediaType = (dataUrl.match(/^data:(.+?);base64/) || [])[1] || 'image/jpeg';
+  const base64 = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : dataUrl;
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'anthropic-version': '2023-06-01',
+      'x-api-key': settings.anthropicApiKey,
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: maxTokens,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
+          { type: 'text', text: prompt }
+        ]
+      }]
+    })
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error.message || 'API error');
+  const text = (data.content || []).map(c => c.text || '').join('');
+  return text;
+}
+
+// JSON部分を抽出（コードフェンス除去）
+function extractJson(text) {
+  let s = text.trim();
+  s = s.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
+  const first = s.indexOf('{');
+  const last = s.lastIndexOf('}');
+  if (first >= 0 && last >= 0) s = s.slice(first, last + 1);
+  return JSON.parse(s);
+}
+
+// 領収書からデータ抽出（金額・日付・内容）
+async function extractReceiptWithAI(idx) {
+  const item = currentExpenseItems[idx];
+  if (!item || !item.receiptImage) {
+    showToast('先に領収書を添付してください', 'error');
+    return;
+  }
+  showToast('AIで抽出中...', 'info');
+  const prompt = `この領収書の画像から以下をJSON形式で抽出してください。読み取れない項目は null にしてください。
+{
+  "amount": 合計金額（税込、数値のみ、円）,
+  "date": "YYYY-MM-DD",
+  "description": "店名または内容を短く（例: セブンイレブン 弁当）"
+}
+JSON以外の説明文は不要です。`;
+  try {
+    const text = await callClaudeVision(item.receiptImage, prompt, 512);
+    const data = extractJson(text);
+    if (typeof data.amount === 'number' && data.amount > 0) {
+      currentExpenseItems[idx].amount = data.amount;
+    }
+    if (data.date && /^\d{4}-\d{2}-\d{2}$/.test(data.date)) {
+      currentExpenseItems[idx].date = data.date;
+    }
+    if (data.description && !currentExpenseItems[idx].description) {
+      currentExpenseItems[idx].description = data.description;
+    }
+    renderExpenseItems();
+    showToast('抽出完了！内容を確認してください');
+  } catch (err) {
+    console.error('AI抽出エラー:', err);
+    showToast('抽出失敗: ' + err.message, 'error');
+  }
+}
+
+// ===================================================
+// DELIVERY SLIP SCAN (納品書から在庫取込)
+// ===================================================
+let deliverySlipItems = [];
+
+async function scanDeliverySlip(event) {
+  const file = event.target.files[0];
+  event.target.value = '';
+  if (!file) return;
+
+  const settings = getSettings();
+  if (!settings.anthropicApiKey) {
+    showToast('APIキーが未設定です。設定タブで登録してください', 'error');
+    return;
+  }
+
+  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+  let dataUrl;
+  showToast('画像を準備中...', 'info');
+  try {
+    if (isPdf) {
+      dataUrl = await pdfFirstPageToDataUrl(file);
+    } else {
+      dataUrl = await fileToCompressedImage(file);
+    }
+  } catch (err) {
+    showToast('画像処理エラー: ' + err.message, 'error');
+    return;
+  }
+
+  showToast('AIで納品書を解析中...（10-20秒）', 'info');
+  const prompt = `この納品書（または類似の商品リスト）の画像から、商品明細をJSON形式で抽出してください。
+{
+  "date": "納品日 YYYY-MM-DD（読めなければnull）",
+  "slipNumber": "納品書番号（あれば、なければnull）",
+  "items": [
+    {
+      "name": "商品名（型番があれば含める）",
+      "quantity": 数量（数値）,
+      "unit": "個/本/set等（あれば）",
+      "unitPrice": 単価（税抜、数値、円、読めなければnull）
+    }
+  ]
+}
+- 送料・値引き・合計行は items に含めないでください
+- JSON以外の説明文は不要です`;
+  try {
+    const text = await callClaudeVision(dataUrl, prompt, 4096);
+    const data = extractJson(text);
+    if (!data.items || !Array.isArray(data.items) || data.items.length === 0) {
+      showToast('商品を検出できませんでした', 'error');
+      return;
+    }
+    deliverySlipItems = data.items.map(it => ({
+      name: it.name || '',
+      quantity: Number(it.quantity) || 0,
+      unit: it.unit || '',
+      unitPrice: Number(it.unitPrice) || 0
+    }));
+    document.getElementById('ds-date').value = data.date && /^\d{4}-\d{2}-\d{2}$/.test(data.date)
+      ? data.date : new Date().toISOString().slice(0, 10);
+    document.getElementById('ds-slip-number').value = data.slipNumber || '';
+    renderDeliverySlipItems();
+    openModal('modal-delivery-slip');
+    showToast(`${deliverySlipItems.length}件の商品を検出しました`);
+  } catch (err) {
+    console.error('納品書解析エラー:', err);
+    showToast('解析失敗: ' + err.message, 'error');
+  }
+}
+
+function pdfFirstPageToDataUrl(file) {
+  return loadPdfJsIfNeeded().then(async () => {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const page = await pdf.getPage(1);
+    const viewport = page.getViewport({ scale: 2 });
+    const canvas = document.createElement('canvas');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+    // 圧縮
+    const tmp = new Image();
+    return new Promise(resolve => {
+      tmp.onload = () => resolve(compressImageDataURL(tmp, 1400, 0.85));
+      tmp.src = canvas.toDataURL('image/jpeg', 0.95);
+    });
+  });
+}
+
+function fileToCompressedImage(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => resolve(compressImageDataURL(img, 1400, 0.85));
+      img.onerror = () => reject(new Error('画像読み込み失敗'));
+      img.src = e.target.result;
+    };
+    reader.onerror = () => reject(new Error('ファイル読み込み失敗'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function renderDeliverySlipItems() {
+  const list = document.getElementById('ds-items-list');
+  if (deliverySlipItems.length === 0) {
+    list.innerHTML = '<p style="color:var(--text-light);text-align:center;">明細がありません</p>';
+    return;
+  }
+  const inventory = getInventory();
+  list.innerHTML = `
+    <div class="table-wrap"><table>
+      <thead><tr>
+        <th>商品名</th>
+        <th class="text-right" style="width:60px;">数量</th>
+        <th style="width:50px;">単位</th>
+        <th class="text-right" style="width:80px;">単価</th>
+        <th style="width:60px;">状態</th>
+        <th style="width:40px;"></th>
+      </tr></thead>
+      <tbody>
+        ${deliverySlipItems.map((it, idx) => {
+          const existing = inventory.find(i => i.name === it.name);
+          const statusTag = existing
+            ? `<span style="color:#3498db;font-size:0.75rem;">既存</span>`
+            : `<span style="color:#e67e22;font-size:0.75rem;">新規</span>`;
+          return `
+          <tr>
+            <td><input type="text" value="${escapeAttr(it.name)}" onchange="updateDsField(${idx},'name',this.value)" style="width:100%;padding:4px;"></td>
+            <td><input type="number" value="${it.quantity}" min="0" onchange="updateDsField(${idx},'quantity',this.value)" style="width:60px;padding:4px;text-align:right;"></td>
+            <td><input type="text" value="${escapeAttr(it.unit)}" onchange="updateDsField(${idx},'unit',this.value)" style="width:50px;padding:4px;"></td>
+            <td><input type="number" value="${it.unitPrice}" min="0" onchange="updateDsField(${idx},'unitPrice',this.value)" style="width:80px;padding:4px;text-align:right;"></td>
+            <td>${statusTag}</td>
+            <td><button class="btn btn-danger btn-sm" onclick="removeDsItem(${idx})">×</button></td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table></div>`;
+}
+
+function updateDsField(idx, field, value) {
+  if (field === 'quantity' || field === 'unitPrice') value = parseInt(value, 10) || 0;
+  deliverySlipItems[idx][field] = value;
+  renderDeliverySlipItems();
+}
+
+function addDsItem() {
+  deliverySlipItems.push({ name: '', quantity: 0, unit: '', unitPrice: 0 });
+  renderDeliverySlipItems();
+}
+
+function removeDsItem(idx) {
+  deliverySlipItems.splice(idx, 1);
+  renderDeliverySlipItems();
+}
+
+function applyDeliverySlip() {
+  if (deliverySlipItems.length === 0) {
+    showToast('明細がありません', 'error'); return;
+  }
+  const validItems = deliverySlipItems.filter(it => it.name.trim() && it.quantity > 0);
+  if (validItems.length === 0) {
+    showToast('有効な明細がありません（商品名と数量が必要）', 'error'); return;
+  }
+  const dateStr = document.getElementById('ds-date').value || new Date().toISOString().slice(0, 10);
+  if (!confirm(`${validItems.length}件を在庫に反映しますか？\n・既存商品は数量を加算\n・新規商品は登録\n・入庫ログにも記録`)) return;
+
+  const inventory = getInventory();
+  let addedCount = 0, updatedCount = 0;
+  validItems.forEach(it => {
+    const name = it.name.trim();
+    const qty = it.quantity;
+    const price = it.unitPrice || 0;
+    const unit = it.unit || '';
+    const existing = inventory.find(i => i.name === name);
+    if (existing) {
+      existing.quantity = (existing.quantity || 0) + qty;
+      if (price > 0) existing.unitPrice = price;
+      if (unit) existing.unit = unit;
+      updatedCount++;
+    } else {
+      inventory.push({
+        id: generateId(),
+        name,
+        quantity: qty,
+        unit,
+        unitPrice: price,
+        retailPrice: 0,
+        category: ''
+      });
+      addedCount++;
+    }
+    // 入庫ログにも記録
+    if (qty > 0 && price > 0) {
+      addPurchase(name, qty, price, dateStr);
+    }
+  });
+  setInventory(inventory);
+  closeModal('modal-delivery-slip');
+  renderInventory();
+  showToast(`反映完了: 既存 ${updatedCount}件更新 / 新規 ${addedCount}件追加`);
+  deliverySlipItems = [];
 }
