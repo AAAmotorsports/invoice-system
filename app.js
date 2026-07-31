@@ -651,6 +651,64 @@ function quickAdjustStock(id) {
   renderInventory(document.getElementById('inventory-search').value);
 }
 
+// 選択商品のカテゴリを一括変更
+function showBulkCategoryModal() {
+  const checked = document.querySelectorAll('.inv-check:checked');
+  if (checked.length === 0) { showToast('商品を選択してください', 'error'); return; }
+  document.getElementById('bulk-category-count').textContent = `${checked.length}件を対象に変更します`;
+  const select = document.getElementById('bulk-category-select');
+  const cats = getCategories();
+  select.innerHTML = '<option value="">-- 未分類にする --</option>'
+    + cats.map(c => `<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`).join('')
+    + '<option value="__new__">+ 新規カテゴリ</option>';
+  select.value = '';
+  const newInput = document.getElementById('bulk-category-new');
+  newInput.value = '';
+  newInput.style.display = 'none';
+  openModal('modal-bulk-category');
+}
+
+function onBulkCategoryChange() {
+  const select = document.getElementById('bulk-category-select');
+  const input = document.getElementById('bulk-category-new');
+  if (select.value === '__new__') {
+    input.style.display = 'block';
+    input.focus();
+  } else {
+    input.style.display = 'none';
+    input.value = '';
+  }
+}
+
+function applyBulkCategory() {
+  const select = document.getElementById('bulk-category-select');
+  let category = select.value;
+  if (category === '__new__') {
+    category = document.getElementById('bulk-category-new').value.trim();
+    if (!category) { showToast('新規カテゴリ名を入力してください', 'error'); return; }
+  }
+  const checked = document.querySelectorAll('.inv-check:checked');
+  if (checked.length === 0) return;
+  const ids = new Set(Array.from(checked).map(cb => cb.value));
+  const inventory = getInventory();
+  let count = 0;
+  inventory.forEach(item => {
+    if (ids.has(item.id)) {
+      item.category = category;
+      count++;
+    }
+  });
+  setInventory(inventory);
+  // 新規カテゴリならマスターにも追加
+  if (category && !getMasterCategories().includes(category)) {
+    addMasterCategory(category);
+  }
+  closeModal('modal-bulk-category');
+  const label = category || '未分類';
+  showToast(`${count}件を「${label}」に変更しました`);
+  renderInventory(document.getElementById('inventory-search').value);
+}
+
 function bulkDeleteInventory() {
   const checked = document.querySelectorAll('.inv-check:checked');
   if (checked.length === 0) return;

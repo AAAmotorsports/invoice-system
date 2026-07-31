@@ -102,7 +102,8 @@
     </div>
     <div id="inventory-bulk-bar" class="bulk-bar" style="display:none;">
       <span id="inventory-checked-count">0件選択中</span>
-      <button class="btn btn-danger btn-sm" onclick="bulkDeleteInventory()">選択した商品を削除</button>
+      <button class="btn btn-outline btn-sm" onclick="showBulkCategoryModal()">カテゴリを変更</button>
+      <button class="btn btn-danger btn-sm" onclick="bulkDeleteInventory()">削除</button>
     </div>
     <div class="table-wrap">
       <table>
@@ -638,6 +639,28 @@
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeModal('modal-invoice-edit')">キャンセル</button>
       <button class="btn btn-primary" onclick="saveEditedInvoice()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Bulk Category Change Modal -->
+<div class="modal-overlay" id="modal-bulk-category">
+  <div class="modal" style="max-width:420px;">
+    <h3>選択商品のカテゴリを変更</h3>
+    <p id="bulk-category-count" style="font-size:0.9rem;color:var(--text-light);margin:0 0 10px;"></p>
+    <div class="form-group">
+      <label>カテゴリ</label>
+      <div style="display:flex;gap:8px;">
+        <select class="form-control" id="bulk-category-select" onchange="onBulkCategoryChange()" style="flex:1;">
+          <option value="">-- 未分類にする --</option>
+          <option value="__new__">+ 新規カテゴリ</option>
+        </select>
+        <input type="text" class="form-control" id="bulk-category-new" placeholder="新しいカテゴリ名" style="flex:1;display:none;">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('modal-bulk-category')">キャンセル</button>
+      <button class="btn btn-primary" onclick="applyBulkCategory()">変更を適用</button>
     </div>
   </div>
 </div>
