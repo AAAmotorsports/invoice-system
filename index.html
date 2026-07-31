@@ -59,7 +59,13 @@
 <section id="page-dashboard" class="page active">
   <div class="stats-grid" id="dashboard-stats"></div>
   <div class="card">
-    <h2>月別売上履歴</h2>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+      <h2 id="sales-view-title" style="margin:0;">月別売上履歴</h2>
+      <div style="display:flex;gap:4px;">
+        <button class="btn btn-outline btn-sm" id="btn-sales-monthly" onclick="switchSalesView('monthly')" style="background:var(--primary,#3498db);color:#fff;border-color:var(--primary,#3498db);">月別</button>
+        <button class="btn btn-outline btn-sm" id="btn-sales-customer" onclick="switchSalesView('customer')">顧客別</button>
+      </div>
+    </div>
     <div id="monthly-sales-history"></div>
   </div>
   <div class="card">

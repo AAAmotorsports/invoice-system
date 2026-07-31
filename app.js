@@ -196,6 +196,151 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 // ===================================================
 // DASHBOARD
 // ===================================================
+let dashboardSalesView = 'monthly'; // 'monthly' | 'customer'
+
+function switchSalesView(mode) {
+  dashboardSalesView = mode;
+  const bMonthly = document.getElementById('btn-sales-monthly');
+  const bCustomer = document.getElementById('btn-sales-customer');
+  const title = document.getElementById('sales-view-title');
+  const activeStyle = 'background:var(--primary,#3498db);color:#fff;border-color:var(--primary,#3498db);';
+  if (mode === 'monthly') {
+    bMonthly.setAttribute('style', activeStyle);
+    bCustomer.removeAttribute('style');
+    title.textContent = '月別売上履歴';
+  } else {
+    bCustomer.setAttribute('style', activeStyle);
+    bMonthly.removeAttribute('style');
+    title.textContent = '顧客別売上履歴';
+  }
+  renderDashboardSalesBlock();
+}
+
+function renderDashboardSalesBlock() {
+  if (dashboardSalesView === 'customer') {
+    renderDashboardCustomerSales();
+  } else {
+    renderDashboardMonthlySales();
+  }
+}
+
+function renderDashboardCustomerSales() {
+  const invoices = getInvoices();
+  const el = document.getElementById('monthly-sales-history');
+  if (!el) return;
+  if (invoices.length === 0) {
+    el.innerHTML = '<div class="empty-state"><p>売上データがありません</p></div>';
+    return;
+  }
+  // 顧客別集計
+  const now = new Date();
+  const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const map = {};
+  invoices.forEach(inv => {
+    const name = inv.customerName || '(未設定)';
+    if (!map[name]) map[name] = { count: 0, total: 0, cost: 0, monthTotal: 0, latest: '' };
+    map[name].count++;
+    map[name].total += (inv.total || 0);
+    map[name].cost += (inv.totalCost || 0);
+    if (inv.invoiceDate && inv.invoiceDate.startsWith(thisMonth)) {
+      map[name].monthTotal += (inv.total || 0);
+    }
+    if (!map[name].latest || (inv.invoiceDate && inv.invoiceDate > map[name].latest)) {
+      map[name].latest = inv.invoiceDate || '';
+    }
+  });
+  const names = Object.keys(map).sort((a, b) => map[b].total - map[a].total);
+  const grandTotal = names.reduce((s, n) => s + map[n].total, 0);
+  const grandMonthly = names.reduce((s, n) => s + map[n].monthTotal, 0);
+  let html = `
+    <div style="margin-bottom:8px;font-size:0.9rem;color:var(--text-light);">
+      合計 ${names.length}顧客 / 累計売上 ${formatCurrency(grandTotal)} / 今月 ${formatCurrency(grandMonthly)}
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr>
+        <th>顧客名</th>
+        <th class="text-right">件数</th>
+        <th class="text-right">今月売上</th>
+        <th class="text-right">累計売上</th>
+        <th class="text-right">累計粗利</th>
+        <th>最終請求日</th>
+      </tr></thead>
+      <tbody>
+        ${names.map(n => {
+          const d = map[n];
+          const profit = d.total - d.cost;
+          return `<tr>
+            <td>${escapeHtml(n)}</td>
+            <td class="text-right">${d.count}</td>
+            <td class="text-right">${formatCurrency(d.monthTotal)}</td>
+            <td class="text-right"><strong>${formatCurrency(d.total)}</strong></td>
+            <td class="text-right">${formatCurrency(profit)}</td>
+            <td>${escapeHtml(d.latest || '')}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table></div>`;
+  el.innerHTML = html;
+}
+
+function renderDashboardMonthlySales() {
+  const invoices = getInvoices();
+  const purchases = getPurchases();
+  const now = new Date();
+  const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const monthlyMap = {};
+  invoices.forEach(inv => {
+    if (!inv.invoiceDate) return;
+    const m = inv.invoiceDate.slice(0, 7);
+    if (!monthlyMap[m]) monthlyMap[m] = { count: 0, subtotal: 0, tax: 0, total: 0, cost: 0 };
+    monthlyMap[m].count++;
+    monthlyMap[m].subtotal += (inv.subtotal || 0);
+    monthlyMap[m].tax += (inv.tax || 0);
+    monthlyMap[m].total += (inv.total || 0);
+  });
+  purchases.forEach(p => {
+    if (!p.date) return;
+    const m = p.date.slice(0, 7);
+    if (!monthlyMap[m]) monthlyMap[m] = { count: 0, subtotal: 0, tax: 0, total: 0, cost: 0 };
+    monthlyMap[m].cost += (p.amount || 0);
+  });
+  const monthlyEl = document.getElementById('monthly-sales-history');
+  const monthKeys = Object.keys(monthlyMap).sort().reverse();
+  if (monthKeys.length === 0) {
+    monthlyEl.innerHTML = '<div class="empty-state"><p>売上データがありません</p></div>';
+    return;
+  }
+  const recent6 = monthKeys.slice(0, 6);
+  const older = monthKeys.slice(6);
+  function monthLabel(m) { return m.replace('-', '年') + '月'; }
+  function monthRow(m) {
+    const d = monthlyMap[m];
+    const isCurrent = m === thisMonth;
+    const profit = d.total - d.cost;
+    return `<tr${isCurrent ? ' style="background:#e8f5e9;font-weight:bold;"' : ''}>
+      <td>${monthLabel(m)}${isCurrent ? ' ★' : ''}</td>
+      <td class="text-right">${d.count}</td>
+      <td class="text-right">${formatCurrency(d.subtotal)}</td>
+      <td class="text-right">${formatCurrency(d.tax)}</td>
+      <td class="text-right">${formatCurrency(d.total)}</td>
+      <td class="text-right">${formatCurrency(d.cost)}</td>
+      <td class="text-right">${formatCurrency(profit)}</td></tr>`;
+  }
+  let html = '<div class="table-wrap"><table><thead><tr><th>年月</th><th class="text-right">件数</th><th class="text-right">小計</th><th class="text-right">消費税</th><th class="text-right">売上合計</th><th class="text-right">仕入合計</th><th class="text-right">粗利</th></tr></thead><tbody>';
+  html += recent6.map(m => monthRow(m)).join('');
+  html += '</tbody></table></div>';
+  if (older.length > 0) {
+    html += '<div style="margin-top:10px;display:flex;align-items:center;gap:8px;">' +
+      '<label style="font-size:0.9rem;font-weight:500;">過去の月を表示：</label>' +
+      '<select id="older-month-select" onchange="showOlderMonth()" style="padding:6px 10px;border-radius:6px;border:1px solid #ccc;font-size:0.9rem;">' +
+      '<option value="">選択してください</option>' +
+      older.map(m => `<option value="${m}">${monthLabel(m)}</option>`).join('') +
+      '</select></div>' +
+      '<div id="older-month-detail"></div>';
+  }
+  monthlyEl.innerHTML = html;
+}
+
 function renderDashboard() {
   const inventory = getInventory();
   const invoices = getInvoices();
@@ -223,62 +368,8 @@ function renderDashboard() {
     <div class="stat-card"><div class="stat-value">${formatCurrency(monthlyProfit)}</div><div class="stat-label">今月の粗利</div></div>
   `;
 
-  // 月別売上履歴
-  const monthlyMap = {};
-  invoices.forEach(inv => {
-    if (!inv.invoiceDate) return;
-    const m = inv.invoiceDate.slice(0, 7);
-    if (!monthlyMap[m]) monthlyMap[m] = { count: 0, subtotal: 0, tax: 0, total: 0, cost: 0 };
-    monthlyMap[m].count++;
-    monthlyMap[m].subtotal += (inv.subtotal || 0);
-    monthlyMap[m].tax += (inv.tax || 0);
-    monthlyMap[m].total += (inv.total || 0);
-  });
-  // 仕入れ履歴から月別仕入れを集計
-  purchases.forEach(p => {
-    if (!p.date) return;
-    const m = p.date.slice(0, 7);
-    if (!monthlyMap[m]) monthlyMap[m] = { count: 0, subtotal: 0, tax: 0, total: 0, cost: 0 };
-    monthlyMap[m].cost += (p.amount || 0);
-  });
-  const monthlyEl = document.getElementById('monthly-sales-history');
-  const monthKeys = Object.keys(monthlyMap).sort().reverse();
-  if (monthKeys.length === 0) {
-    monthlyEl.innerHTML = '<div class="empty-state"><p>売上データがありません</p></div>';
-  } else {
-    const recent6 = monthKeys.slice(0, 6);
-    const older = monthKeys.slice(6);
-
-    function monthLabel(m) { return m.replace('-', '年') + '月'; }
-    function monthRow(m) {
-      const d = monthlyMap[m];
-      const isCurrent = m === thisMonth;
-      const profit = d.total - d.cost;
-      return `<tr${isCurrent ? ' style="background:#e8f5e9;font-weight:bold;"' : ''}>
-        <td>${monthLabel(m)}${isCurrent ? ' ★' : ''}</td>
-        <td class="text-right">${d.count}</td>
-        <td class="text-right">${formatCurrency(d.subtotal)}</td>
-        <td class="text-right">${formatCurrency(d.tax)}</td>
-        <td class="text-right">${formatCurrency(d.total)}</td>
-        <td class="text-right">${formatCurrency(d.cost)}</td>
-        <td class="text-right">${formatCurrency(profit)}</td></tr>`;
-    }
-
-    let html = '<div class="table-wrap"><table><thead><tr><th>年月</th><th class="text-right">件数</th><th class="text-right">小計</th><th class="text-right">消費税</th><th class="text-right">売上合計</th><th class="text-right">仕入合計</th><th class="text-right">粗利</th></tr></thead><tbody>';
-    html += recent6.map(m => monthRow(m)).join('');
-    html += '</tbody></table></div>';
-
-    if (older.length > 0) {
-      html += '<div style="margin-top:10px;display:flex;align-items:center;gap:8px;">' +
-        '<label style="font-size:0.9rem;font-weight:500;">過去の月を表示：</label>' +
-        '<select id="older-month-select" onchange="showOlderMonth()" style="padding:6px 10px;border-radius:6px;border:1px solid #ccc;font-size:0.9rem;">' +
-        '<option value="">選択してください</option>' +
-        older.map(m => `<option value="${m}">${monthLabel(m)}</option>`).join('') +
-        '</select></div>' +
-        '<div id="older-month-detail"></div>';
-    }
-    monthlyEl.innerHTML = html;
-  }
+  // 月別 or 顧客別 売上履歴（切替）
+  renderDashboardSalesBlock();
 
   // Recent invoices
   const recent = invoices.slice().sort((a, b) => b.createdAt - a.createdAt).slice(0, 5);
