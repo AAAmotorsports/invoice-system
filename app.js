@@ -444,10 +444,10 @@ function renderInventory(search = '') {
           <td>${escapeHtml(item.unit || '')}</td>
           <td class="text-right">${formatCurrency(item.unitPrice)}</td>
           <td class="text-right">${formatCurrency(item.retailPrice || 0)}</td>
-          <td class="text-center">
-            <button class="btn btn-outline btn-sm" onclick="quickAdjustStock('${item.id}')" title="数量調整">±</button>
-            <button class="btn btn-outline btn-sm" onclick="editItem('${item.id}')">編集</button>
-            <button class="btn btn-danger btn-sm" onclick="deleteItem('${item.id}')">削除</button>
+          <td class="text-center" style="white-space:nowrap;">
+            <button class="btn btn-outline btn-sm" onclick="quickAdjustStock('${item.id}')" title="数量調整（+5, -3, =10）" style="padding:4px 8px;">±</button>
+            <button class="btn btn-outline btn-sm" onclick="editItem('${item.id}')" title="編集" style="padding:4px 8px;">✏️</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteItem('${item.id}')" title="削除" style="padding:4px 8px;">🗑</button>
           </td>
         </tr>`;
     });
@@ -550,6 +550,22 @@ function updateInventoryBulkBar() {
   } else {
     bar.style.display = 'none';
   }
+}
+
+// 在庫「その他」メニュー
+function toggleInventoryMenu(event) {
+  event.stopPropagation();
+  const menu = document.getElementById('inventory-menu');
+  if (!menu) return;
+  const isOpen = menu.style.display === 'block';
+  menu.style.display = isOpen ? 'none' : 'block';
+  if (!isOpen) {
+    setTimeout(() => document.addEventListener('click', hideInventoryMenu, { once: true }), 0);
+  }
+}
+function hideInventoryMenu() {
+  const menu = document.getElementById('inventory-menu');
+  if (menu) menu.style.display = 'none';
 }
 
 // 数量を相対値で調整（例: +5, -3, 10）
