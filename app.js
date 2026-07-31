@@ -2988,12 +2988,15 @@ async function scanDeliverySlip(event) {
         parsed.items.forEach(it => {
           const name = (it.name || '').trim();
           const existing = inventorySnapshot.find(x => x.name === name);
+          // AIが定価を読み取った場合はそれを優先、無ければ既存商品の定価
+          const aiRetail = Number(it.retailPrice) || 0;
+          const retail = aiRetail > 0 ? aiRetail : (existing ? (existing.retailPrice || 0) : 0);
           deliverySlipItems.push({
             name,
             quantity: Number(it.quantity) || 0,
             unit: it.unit || '',
             unitPrice: Number(it.unitPrice) || 0,
-            retailPrice: existing ? (existing.retailPrice || 0) : 0,
+            retailPrice: retail,
             sourceFile: file.name,
             sourceDate: parsed.date || null
           });
@@ -3065,10 +3068,17 @@ async function scanOneDeliverySlip(file) {
       "name": "商品名（型番があれば含める）",
       "quantity": 数量（整数）,
       "unit": "個/本/set等（あれば、無ければ空文字）",
-      "unitPrice": 単価（税抜、整数、円）
+      "unitPrice": 仕入単価/卸価格/仕切値（税抜、整数、円）,
+      "retailPrice": 定価/希望小売価格/上代（同じ行に別列で記載されていれば整数、無ければ 0）
     }
   ]
 }
+
+【価格の見分け方】
+- 「単価」「卸」「仕切」「原価」→ unitPrice
+- 「定価」「上代」「小売」「税込価格」「参考価格」→ retailPrice
+- 1つの価格しか無い納品書もあります。その場合は unitPrice に入れ、retailPrice は 0
+- 「掛率」「掛」だけ書いてある場合は計算しない（0のまま）
 
 明細行が本当に無ければ items: [] を返してください。JSON以外の説明は不要です。`;
   const text = await callClaudeVision(dataUrl, prompt, 4096, 'claude-sonnet-5');
