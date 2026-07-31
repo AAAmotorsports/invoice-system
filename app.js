@@ -2984,6 +2984,15 @@ async function scanDeliverySlip(event) {
     showToast(`納品書 ${i + 1}/${files.length} を高精度解析中: ${file.name}(20-40秒)`, 'info');
     try {
       const parsed = await scanOneDeliverySlip(file);
+      // 誤読チェック: 5年以上前 or 未来すぎる日付は無効化
+      const nowY = new Date().getFullYear();
+      if (parsed && parsed.date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.date)) {
+        const y = parseInt(parsed.date.slice(0, 4), 10);
+        if (y < nowY - 5 || y > nowY + 1) {
+          console.warn(`AI が疑わしい年を返しました: ${parsed.date} → 破棄（現在${nowY}年）`);
+          parsed.date = null;
+        }
+      }
       if (parsed && parsed.items && parsed.items.length > 0) {
         parsed.items.forEach(it => {
           const name = (it.name || '').trim();
@@ -3054,8 +3063,12 @@ async function scanOneDeliverySlip(file) {
 - 明細テーブルに並ぶ「実際の商品」の各行のみ
 - 商品名・数量・単価が揃っている、または商品と判断できる行
 
-【日付の注意（重要）】
-- 現在は${currentYear}年です。読み取った年が2010年より前になる場合は誤読の可能性大。もう一度桁を確認してください
+【日付の注意（極めて重要）】
+- **現在は${currentYear}年です**。納品書の年は原則 ${currentYear - 2} 〜 ${currentYear} 年の範囲内のはず
+- **${currentYear - 5}年より前の日付が出る場合は必ず誤読**。もう一度画像を精査してください
+  * 特に「2024」を「2014」「2004」と読み違えるケースが頻発しています
+  * 桁の「2」と「1」「0」を混同しないよう慎重に
+  * 判別に自信が持てない場合、または明らかに古すぎる場合は date: null を返す（適当な古い年を返さない）
 - 令和6年=2024, 令和7年=2025, 令和8年=2026 と換算
 - 平成/令和の年号は西暦に変換
 
