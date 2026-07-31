@@ -85,15 +85,18 @@
       <button class="btn btn-outline" onclick="showStockLog()">入庫ログ</button>
       <div style="position:relative;">
         <button class="btn btn-outline" onclick="toggleInventoryMenu(event)">その他 ▼</button>
-        <div id="inventory-menu" style="display:none;position:absolute;top:100%;right:0;background:var(--card-bg);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.1);z-index:50;min-width:200px;margin-top:4px;">
+        <div id="inventory-menu" style="display:none;position:absolute;top:100%;right:0;background:var(--card-bg);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.1);z-index:50;min-width:220px;margin-top:4px;">
           <label style="display:block;padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--border);" onclick="event.stopPropagation();">
             🤖 納品書から取込
             <input type="file" accept="image/*,application/pdf,.pdf" onchange="scanDeliverySlip(event);hideInventoryMenu();" style="display:none;">
           </label>
-          <label style="display:block;padding:10px 14px;cursor:pointer;" onclick="event.stopPropagation();">
+          <label style="display:block;padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--border);" onclick="event.stopPropagation();">
             📄 CSVから一括インポート
             <input type="file" accept=".csv" onchange="importCSV(event);hideInventoryMenu();" style="display:none;">
           </label>
+          <div style="padding:10px 14px;cursor:pointer;color:#e74c3c;" onclick="event.stopPropagation();clearAllInventory();hideInventoryMenu();">
+            🗑 在庫を全削除（リセット）
+          </div>
         </div>
       </div>
     </div>
@@ -395,6 +398,18 @@
     <h2>振込先情報</h2>
     <div id="bank-accounts-list"></div>
     <button class="btn btn-outline" onclick="showAddBankModal()" style="margin-top:8px;">+ 振込先を追加</button>
+  </div>
+
+  <div class="card">
+    <h2>カテゴリ管理</h2>
+    <p style="font-size:0.85rem;color:var(--text-light);margin-bottom:10px;">
+      在庫や納品書取込で選べるマスターカテゴリ。実際の商品と独立して管理できます。
+    </p>
+    <div id="master-categories-list"></div>
+    <div style="display:flex;gap:8px;margin-top:8px;">
+      <input type="text" class="form-control" id="new-master-category" placeholder="新しいカテゴリ名" style="flex:1;">
+      <button class="btn btn-primary" onclick="addMasterCategoryFromUI()">追加</button>
+    </div>
   </div>
 
   <div class="card">

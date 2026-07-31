@@ -25,7 +25,16 @@ const DEFAULT_SETTINGS = {
   ],
   taxRate: 10,
   logoImage: '',
-  anthropicApiKey: '' // AI機能用（ローカル端末にのみ保存、Firebase同期対象外）
+  anthropicApiKey: '', // AI機能用（ローカル端末にのみ保存、Firebase同期対象外）
+  masterCategories: [
+    'エンジン部品',
+    'フレーム部品',
+    'ケミカル',
+    'フォルツァ（エンジン外注）',
+    'アパレル',
+    'タイヤ',
+    'サービス'
+  ]
 };
 
 function loadData(key) {
@@ -345,9 +354,33 @@ function showOlderMonth() {
 // ---- カテゴリ関連 ----
 function getCategories() {
   const inventory = getInventory();
-  const cats = [...new Set(inventory.map(i => i.category || '').filter(c => c))];
+  const inventoryCats = inventory.map(i => i.category || '').filter(c => c);
+  const masterCats = (getSettings().masterCategories || []).filter(c => c);
+  const cats = [...new Set([...masterCats, ...inventoryCats])];
   cats.sort((a, b) => a.localeCompare(b, 'ja'));
   return cats;
+}
+
+// マスターカテゴリの管理
+function getMasterCategories() {
+  return (getSettings().masterCategories || []).slice();
+}
+function setMasterCategories(cats) {
+  const s = getSettings();
+  s.masterCategories = cats;
+  setSettings(s);
+}
+function addMasterCategory(name) {
+  const cats = getMasterCategories();
+  const trimmed = (name || '').trim();
+  if (!trimmed) return false;
+  if (cats.includes(trimmed)) { showToast('既に存在します', 'error'); return false; }
+  cats.push(trimmed);
+  setMasterCategories(cats);
+  return true;
+}
+function removeMasterCategory(name) {
+  setMasterCategories(getMasterCategories().filter(c => c !== name));
 }
 
 function updateCategoryFilter() {
@@ -550,6 +583,23 @@ function updateInventoryBulkBar() {
   } else {
     bar.style.display = 'none';
   }
+}
+
+// 在庫を全削除（入庫ログ・請求書・経費請求は残す）
+function clearAllInventory() {
+  const count = getInventory().length;
+  if (count === 0) { showToast('在庫はすでに空です', 'info'); return; }
+  const confirmMsg = `⚠️ 在庫商品を全て削除します\n\n` +
+    `対象: 在庫管理の商品 ${count}件\n` +
+    `保持: 入庫ログ・請求書・経費請求・仕入れ金額・売上データ\n\n` +
+    `本当に削除しますか？（この操作は取り消せません）`;
+  if (!confirm(confirmMsg)) return;
+  // 二重確認
+  const typed = prompt('確認のため「リセット」と入力してください');
+  if (typed !== 'リセット') { showToast('キャンセルしました', 'info'); return; }
+  setInventory([]);
+  showToast(`在庫${count}件を削除しました。納品書から取込を始めましょう`);
+  renderInventory();
 }
 
 // 在庫「その他」メニュー
@@ -1829,7 +1879,42 @@ function loadSettingsForm() {
 
   renderBankAccounts(s);
   renderCustomerList();
+  renderMasterCategoriesList();
   refreshApiKeyStatus();
+}
+
+function renderMasterCategoriesList() {
+  const list = document.getElementById('master-categories-list');
+  if (!list) return;
+  const cats = getMasterCategories();
+  if (cats.length === 0) {
+    list.innerHTML = '<p style="color:var(--text-light);font-size:0.9rem;">カテゴリが登録されていません。</p>';
+    return;
+  }
+  list.innerHTML = cats.map(c => `
+    <div class="bank-item">
+      <div class="bank-info"><strong>${escapeHtml(c)}</strong></div>
+      <button class="btn btn-danger btn-sm" onclick="deleteMasterCategoryFromUI('${escapeAttr(c)}')">削除</button>
+    </div>
+  `).join('');
+}
+
+function addMasterCategoryFromUI() {
+  const input = document.getElementById('new-master-category');
+  const name = input.value.trim();
+  if (!name) { showToast('カテゴリ名を入力してください', 'error'); return; }
+  if (addMasterCategory(name)) {
+    input.value = '';
+    renderMasterCategoriesList();
+    showToast(`「${name}」を追加しました`);
+  }
+}
+
+function deleteMasterCategoryFromUI(name) {
+  if (!confirm(`カテゴリ「${name}」をマスターから削除しますか？\n\n※既存の商品のカテゴリ設定はそのまま残ります`)) return;
+  removeMasterCategory(name);
+  renderMasterCategoriesList();
+  showToast(`「${name}」を削除しました`);
 }
 
 function refreshApiKeyStatus() {
@@ -2294,6 +2379,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (hasData) {
     const overlay = document.getElementById('data-load-overlay');
     if (overlay) overlay.style.display = 'none';
+  }
+
+  // 既存ユーザーで masterCategories が未設定なら初期値を投入
+  {
+    const s = getSettings();
+    if (!s.masterCategories || s.masterCategories.length === 0) {
+      s.masterCategories = DEFAULT_SETTINGS.masterCategories.slice();
+      setSettings(s);
+    }
   }
 
   // 既存のlogoImageが大きすぎる場合、自動圧縮（Firestore 1MBフィールド制限対策）
@@ -3029,7 +3123,7 @@ function removeDsItem(idx) {
 function populateDsCategoryDropdown() {
   const select = document.getElementById('ds-category-select');
   if (!select) return;
-  const categories = [...new Set(getInventory().map(i => i.category).filter(c => c && c !== '未分類'))].sort((a, b) => a.localeCompare(b, 'ja'));
+  const categories = getCategories(); // マスター + 在庫由来 の統合
   select.innerHTML = '<option value="">-- 未分類のまま --</option>'
     + categories.map(c => `<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`).join('')
     + '<option value="__new__">+ 新規カテゴリ</option>';
@@ -3070,6 +3164,11 @@ function applyDeliverySlip() {
   const chosenCategory = getSelectedDsCategory();
   const categoryLabel = chosenCategory || '未分類';
   if (!confirm(`${validItems.length}件を在庫に反映しますか？\n・カテゴリ: ${categoryLabel}\n・既存商品は数量を加算（カテゴリは変更なし）\n・新規商品はこのカテゴリで登録\n・入庫ログにも記録`)) return;
+
+  // 新規カテゴリならマスターにも追加
+  if (chosenCategory && !getMasterCategories().includes(chosenCategory)) {
+    addMasterCategory(chosenCategory);
+  }
 
   const inventory = getInventory();
   let addedCount = 0, updatedCount = 0;
