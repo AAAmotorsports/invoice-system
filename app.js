@@ -298,16 +298,51 @@ function renderDashboard() {
     `).join('');
   }
 
-  // Stock alerts
-  const lowStock = inventory.filter(i => i.quantity <= 3);
+  // 今月入庫・未請求アラート
+  const validInvoiceIds = new Set(invoices.map(iv => iv.id));
+  const uninvoicedThisMonth = purchases.filter(p =>
+    p.date && p.date.startsWith(thisMonth) &&
+    !p.excluded &&
+    (!p.invoicedInvoiceId || !validInvoiceIds.has(p.invoicedInvoiceId))
+  );
+  // 商品名でグループ化して集計
+  const grouped = {};
+  uninvoicedThisMonth.forEach(p => {
+    const key = p.itemName || '(名称なし)';
+    if (!grouped[key]) grouped[key] = { count: 0, totalQty: 0, totalAmount: 0, latestDate: '' };
+    grouped[key].count++;
+    grouped[key].totalQty += (p.quantity || 0);
+    grouped[key].totalAmount += (p.amount || 0);
+    if (!grouped[key].latestDate || p.date > grouped[key].latestDate) grouped[key].latestDate = p.date;
+  });
   const alertsEl = document.getElementById('stock-alerts');
-  if (lowStock.length === 0) {
-    alertsEl.innerHTML = '<div class="alert alert-success">在庫は十分です</div>';
+  const keys = Object.keys(grouped).sort((a, b) => grouped[b].latestDate.localeCompare(grouped[a].latestDate));
+  if (keys.length === 0) {
+    alertsEl.innerHTML = '<div class="alert alert-success">✅ 今月の入庫はすべて請求済みまたは対象外です</div>';
   } else {
-    alertsEl.innerHTML = lowStock.map(item =>
-      `<div class="alert alert-warning">${escapeHtml(item.name)} — 残り ${item.quantity}${item.unit || '個'}</div>`
-    ).join('');
+    const totalCount = uninvoicedThisMonth.length;
+    const totalAmount = uninvoicedThisMonth.reduce((s, p) => s + (p.amount || 0), 0);
+    alertsEl.innerHTML = `
+      <div style="margin-bottom:8px;font-size:0.9rem;color:#e74c3c;font-weight:bold;">⚠️ ${keys.length}商品 / ${totalCount}件の未請求（仕入額 ${formatCurrency(totalAmount)}）</div>
+      ${keys.map(name => {
+        const g = grouped[name];
+        return `<div class="alert alert-warning" style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+          <div>
+            <strong>${escapeHtml(name)}</strong>
+            <span style="font-size:0.85rem;color:var(--text-light);">— ${g.count}件 / 数量 ${formatNumber(g.totalQty)} / 最終 ${escapeHtml(g.latestDate)}</span>
+          </div>
+          <span style="font-weight:bold;">${formatCurrency(g.totalAmount)}</span>
+        </div>`;
+      }).join('')}
+      <button class="btn btn-outline btn-sm" style="margin-top:8px;" onclick="showStockLogUnpaidOnly()">入庫ログを未請求のみで開く</button>
+    `;
   }
+}
+
+function showStockLogUnpaidOnly() {
+  showStockLog();
+  const cb = document.getElementById('stock-log-unpaid-only');
+  if (cb) { cb.checked = true; renderStockLog(); }
 }
 
 function showOlderMonth() {
