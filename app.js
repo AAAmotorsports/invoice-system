@@ -456,21 +456,30 @@ function renderDashboard() {
     `).join('');
   }
 
-  // 今月入庫・未請求アラート
-  const validInvoiceIds = new Set(invoices.map(iv => iv.id));
-  const uninvoicedThisMonth = purchases.filter(p =>
-    p.date && p.date.startsWith(thisMonth) &&
-    !p.excluded &&
-    (!p.invoicedInvoiceId || !validInvoiceIds.has(p.invoicedInvoiceId))
-  );
-  // 商品名でグループ化して集計
+  // 今月入庫・未請求アラート（数量ベースで判定 = 一部残っていればアラート）
+  const uninvoicedThisMonth = [];
+  purchases.forEach(p => {
+    if (!p.date || !p.date.startsWith(thisMonth)) return;
+    if (p.excluded) return;
+    const status = getPurchaseStatus(p, invoices);
+    if (status === 'paid') return;
+    const invoicedQty = getPurchaseInvoicedQty(p.id, invoices);
+    const remainingQty = Math.max(0, (p.quantity || 0) - invoicedQty);
+    if (remainingQty <= 0) return;
+    uninvoicedThisMonth.push({ p, remainingQty, invoicedQty, status });
+  });
+  // 商品名でグループ化して集計（残数量ベース）
   const grouped = {};
-  uninvoicedThisMonth.forEach(p => {
+  uninvoicedThisMonth.forEach(x => {
+    const p = x.p;
     const key = p.itemName || '(名称なし)';
-    if (!grouped[key]) grouped[key] = { count: 0, totalQty: 0, totalAmount: 0, latestDate: '' };
+    if (!grouped[key]) grouped[key] = { count: 0, totalQty: 0, totalAmount: 0, latestDate: '', hasPartial: false };
     grouped[key].count++;
-    grouped[key].totalQty += (p.quantity || 0);
-    grouped[key].totalAmount += (p.amount || 0);
+    grouped[key].totalQty += x.remainingQty;
+    // 残数量ベースの金額
+    const unitPrice = p.quantity > 0 ? ((p.amount || 0) / p.quantity) : 0;
+    grouped[key].totalAmount += Math.round(unitPrice * x.remainingQty);
+    if (x.status === 'partial') grouped[key].hasPartial = true;
     if (!grouped[key].latestDate || p.date > grouped[key].latestDate) grouped[key].latestDate = p.date;
   });
   const alertsEl = document.getElementById('stock-alerts');
@@ -479,15 +488,16 @@ function renderDashboard() {
     alertsEl.innerHTML = '<div class="alert alert-success">✅ 今月の入庫はすべて請求済みまたは対象外です</div>';
   } else {
     const totalCount = uninvoicedThisMonth.length;
-    const totalAmount = uninvoicedThisMonth.reduce((s, p) => s + (p.amount || 0), 0);
+    const totalAmount = keys.reduce((s, k) => s + grouped[k].totalAmount, 0);
     alertsEl.innerHTML = `
-      <div style="margin-bottom:8px;font-size:0.9rem;color:#e74c3c;font-weight:bold;">⚠️ ${keys.length}商品 / ${totalCount}件の未請求（仕入額 ${formatCurrency(totalAmount)}）</div>
+      <div style="margin-bottom:8px;font-size:0.9rem;color:#e74c3c;font-weight:bold;">⚠️ ${keys.length}商品 / ${totalCount}件の未請求残（残金額 ${formatCurrency(totalAmount)}）</div>
       ${keys.map(name => {
         const g = grouped[name];
+        const partialTag = g.hasPartial ? ' <span style="background:#f39c12;color:#fff;padding:1px 6px;border-radius:8px;font-size:0.7rem;">一部済含む</span>' : '';
         return `<div class="alert alert-warning" style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
           <div>
-            <strong>${escapeHtml(name)}</strong>
-            <span style="font-size:0.85rem;color:var(--text-light);">— ${g.count}件 / 数量 ${formatNumber(g.totalQty)} / 最終 ${escapeHtml(g.latestDate)}</span>
+            <strong>${escapeHtml(name)}</strong>${partialTag}
+            <span style="font-size:0.85rem;color:var(--text-light);">— ${g.count}件 / 残数量 ${formatNumber(g.totalQty)} / 最終 ${escapeHtml(g.latestDate)}</span>
           </div>
           <span style="font-weight:bold;">${formatCurrency(g.totalAmount)}</span>
         </div>`;
@@ -1650,6 +1660,28 @@ function saveEditedInvoice() {
   showToast('請求書を修正しました');
 }
 
+// 入庫ログに紐付いた請求書明細の合計数量を計算
+function getPurchaseInvoicedQty(purchaseId, invoicesCache) {
+  const invs = invoicesCache || getInvoices();
+  let sum = 0;
+  invs.forEach(inv => {
+    (inv.items || []).forEach(item => {
+      if (item.sourcePurchaseId === purchaseId) sum += (item.quantity || 0);
+    });
+  });
+  return sum;
+}
+
+// 入庫ログの請求状況を返す: 'excluded' | 'paid' | 'partial' | 'unpaid'
+function getPurchaseStatus(purchase, invoicesCache) {
+  if (purchase.excluded) return 'excluded';
+  const invoiced = getPurchaseInvoicedQty(purchase.id, invoicesCache);
+  const total = purchase.quantity || 0;
+  if (invoiced <= 0) return 'unpaid';
+  if (invoiced >= total) return 'paid';
+  return 'partial';
+}
+
 // items 内の sourcePurchaseId を持つ明細を入庫ログに紐付ける
 function linkPurchasesToInvoice(items, invoice) {
   const purchases = getPurchases();
@@ -1686,10 +1718,11 @@ function renderStockLog() {
     filtered = filtered.filter(p => p.itemName.toLowerCase().includes(search.toLowerCase()));
   }
   if (unpaidOnly) {
-    const validInvoiceIds = new Set(getInvoices().map(iv => iv.id));
-    filtered = filtered.filter(p =>
-      !p.excluded && (!p.invoicedInvoiceId || !validInvoiceIds.has(p.invoicedInvoiceId))
-    );
+    const invs = getInvoices();
+    filtered = filtered.filter(p => {
+      const st = getPurchaseStatus(p, invs);
+      return st === 'unpaid' || st === 'partial';
+    });
   }
 
   // 新しい順
@@ -1717,13 +1750,18 @@ function renderStockLog() {
       ? `${formatNumber(stockQty)}${escapeHtml(stockUnit)}`
       : '—';
 
-    // 3状態: 済 / 対象外 / 未請求
-    const invoiced = p.invoicedInvoiceId && invoices.find(iv => iv.id === p.invoicedInvoiceId);
+    // 4状態: 済 / 一部済 / 対象外 / 未請求
+    const status = getPurchaseStatus(p, invoices);
+    const invoicedQty = getPurchaseInvoicedQty(p.id, invoices);
+    const remainingQty = Math.max(0, (p.quantity || 0) - invoicedQty);
     let invoiceBadge, toggleBtn;
-    if (invoiced) {
+    if (status === 'paid') {
       invoiceBadge = `<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:#2ecc71;color:#fff;font-size:0.75rem;font-weight:bold;" title="請求書番号: ${escapeHtml(p.invoicedInvoiceNumber || '')}">✓ 済</span>`;
       toggleBtn = '';
-    } else if (p.excluded) {
+    } else if (status === 'partial') {
+      invoiceBadge = `<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:#f39c12;color:#fff;font-size:0.75rem;font-weight:bold;" title="請求済み ${invoicedQty} / ${p.quantity}">一部済 (残${remainingQty})</span>`;
+      toggleBtn = '';
+    } else if (status === 'excluded') {
       invoiceBadge = `<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:#95a5a6;color:#fff;font-size:0.75rem;font-weight:bold;">対象外</span>`;
       toggleBtn = `<button class="btn btn-outline btn-sm" onclick="togglePurchaseExcluded('${p.id}')" title="未請求に戻す">↩</button>`;
     } else {
@@ -1848,15 +1886,21 @@ function renderStockLogSelectList(purchases) {
     const badge = isSelected
       ? `<span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:var(--primary,#3498db);color:#fff;font-weight:bold;font-size:0.85rem;">${orderIdx + 1}</span>`
       : `<span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:#eee;color:#999;font-size:0.85rem;">＋</span>`;
-    const invoiced = p.invoicedInvoiceId && invoices.find(iv => iv.id === p.invoicedInvoiceId);
-    const invoiceTag = invoiced
-      ? `<span style="display:inline-block;padding:1px 6px;border-radius:8px;background:#2ecc71;color:#fff;font-size:0.7rem;margin-left:6px;">✓済</span>`
-      : `<span style="display:inline-block;padding:1px 6px;border-radius:8px;background:#e74c3c;color:#fff;font-size:0.7rem;margin-left:6px;">未</span>`;
+    const status = getPurchaseStatus(p, invoices);
+    const invoicedQty = getPurchaseInvoicedQty(p.id, invoices);
+    const remainingQty = Math.max(0, (p.quantity || 0) - invoicedQty);
+    let invoiceTag = '';
+    if (status === 'paid') invoiceTag = `<span style="display:inline-block;padding:1px 6px;border-radius:8px;background:#2ecc71;color:#fff;font-size:0.7rem;margin-left:6px;">✓済</span>`;
+    else if (status === 'partial') invoiceTag = `<span style="display:inline-block;padding:1px 6px;border-radius:8px;background:#f39c12;color:#fff;font-size:0.7rem;margin-left:6px;" title="残${remainingQty}">一部済</span>`;
+    else if (status === 'excluded') invoiceTag = `<span style="display:inline-block;padding:1px 6px;border-radius:8px;background:#95a5a6;color:#fff;font-size:0.7rem;margin-left:6px;">対象外</span>`;
+    else invoiceTag = `<span style="display:inline-block;padding:1px 6px;border-radius:8px;background:#e74c3c;color:#fff;font-size:0.7rem;margin-left:6px;">未</span>`;
+    // 残数量の表示
+    const remainInfo = status === 'partial' ? ` / 残${formatNumber(remainingQty)}` : '';
     return `
     <div onclick="toggleStockLogSelect('${p.id}')" style="display:flex;justify-content:space-between;align-items:center;padding:8px;border-bottom:1px solid var(--border);cursor:pointer;background:${isSelected ? 'rgba(52,152,219,0.08)' : 'transparent'};">
       <div style="flex:1;">
         <div style="font-weight:500;">${escapeHtml(p.itemName || '')}${invoiceTag}</div>
-        <div style="font-size:0.8rem;color:var(--text-light);">${escapeHtml(p.date || '')} / 入庫: ${formatNumber(p.quantity)} / 在庫: ${formatNumber(stockQty)}${escapeHtml(stockUnit)} / 仕入: ${formatCurrency(p.unitPrice)}</div>
+        <div style="font-size:0.8rem;color:var(--text-light);">${escapeHtml(p.date || '')} / 入庫: ${formatNumber(p.quantity)}${remainInfo} / 在庫: ${formatNumber(stockQty)}${escapeHtml(stockUnit)} / 仕入: ${formatCurrency(p.unitPrice)}</div>
       </div>
       ${badge}
     </div>`;
