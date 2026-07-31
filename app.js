@@ -2878,7 +2878,7 @@ async function reissueExpense() {
 // ===================================================
 
 // base64画像とプロンプトを送って構造化データを取得
-async function callClaudeVision(dataUrl, prompt, maxTokens = 2048) {
+async function callClaudeVision(dataUrl, prompt, maxTokens = 2048, model) {
   const settings = getSettings();
   if (!settings.anthropicApiKey) {
     throw new Error('APIキーが設定されていません（設定タブで登録してください）');
@@ -2896,7 +2896,7 @@ async function callClaudeVision(dataUrl, prompt, maxTokens = 2048) {
       'anthropic-dangerous-direct-browser-access': 'true'
     },
     body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
+      model: model || 'claude-haiku-4-5-20251001',
       max_tokens: maxTokens,
       messages: [{
         role: 'user',
@@ -2980,7 +2980,7 @@ async function scanDeliverySlip(event) {
 
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
-    showToast(`納品書 ${i + 1}/${files.length} を処理中: ${file.name}`, 'info');
+    showToast(`納品書 ${i + 1}/${files.length} を高精度解析中: ${file.name}（20-40秒）`, 'info');
     try {
       const parsed = await scanOneDeliverySlip(file);
       if (parsed && parsed.items && parsed.items.length > 0) {
@@ -3030,22 +3030,44 @@ async function scanOneDeliverySlip(file) {
   const dataUrl = isPdf
     ? await pdfFirstPageToDataUrl(file)
     : await fileToCompressedImage(file);
-  const prompt = `この納品書（または類似の商品リスト）の画像から、商品明細をJSON形式で抽出してください。
+  const currentYear = new Date().getFullYear();
+  const prompt = `この画像は納品書・発注書・請求書のいずれかです。**商品明細行のみ**をJSON形式で抽出してください。
+
+【必ず除外するもの】絶対に items に含めないでください:
+- 発行元/送付先の会社情報（会社名、住所、郵便番号）
+- 電話番号（TEL）、FAX番号
+- 見出し（例:「訂購票」「注文書」「納品書」「請求書」「明細書」）
+- ラベル・項目タイトル（例:「商品名」「数量」「単価」）
+- 合計、小計、消費税、送料、値引き
+- 伝票番号・発注番号・受注番号などの書類自体の番号
+- 郵便番号や住所番地（例: 810-0024, 〒xxx-xxxx）
+- ページ番号、担当者名、日付欄そのもの
+
+【抽出対象】
+- 明細テーブルに並ぶ「実際の商品」の各行のみ
+- 商品名・数量・単価が揃っている、または商品と判断できる行
+
+【日付の注意（重要）】
+- 現在は${currentYear}年です。読み取った年が2010年より前になる場合は誤読の可能性大。もう一度桁を確認してください
+- 令和6年=2024, 令和7年=2025, 令和8年=2026 と換算
+- 平成/令和の年号は西暦に変換
+
+【出力形式】
 {
-  "date": "納品日 YYYY-MM-DD（読めなければnull）",
-  "slipNumber": "納品書番号（あれば、なければnull）",
+  "date": "納品日 YYYY-MM-DD（読めなければ null）",
+  "slipNumber": "納品書番号（あれば、なければ null）",
   "items": [
     {
       "name": "商品名（型番があれば含める）",
-      "quantity": 数量（数値）,
-      "unit": "個/本/set等（あれば）",
-      "unitPrice": 単価（税抜、数値、円、読めなければnull）
+      "quantity": 数量（整数）,
+      "unit": "個/本/set等（あれば、無ければ空文字）",
+      "unitPrice": 単価（税抜、整数、円）
     }
   ]
 }
-- 送料・値引き・合計行は items に含めないでください
-- JSON以外の説明文は不要です`;
-  const text = await callClaudeVision(dataUrl, prompt, 4096);
+
+明細行が本当に無ければ items: [] を返してください。JSON以外の説明は不要です。`;
+  const text = await callClaudeVision(dataUrl, prompt, 4096, 'claude-sonnet-5');
   return extractJson(text);
 }
 
