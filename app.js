@@ -197,6 +197,53 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 // DASHBOARD
 // ===================================================
 let dashboardSalesView = 'monthly'; // 'monthly' | 'customer'
+let dashPeriodFrom = ''; // 'YYYY-MM-DD'
+let dashPeriodTo = '';   // 'YYYY-MM-DD'
+
+function onDashDateChange() {
+  dashPeriodFrom = document.getElementById('dash-date-from').value || '';
+  dashPeriodTo = document.getElementById('dash-date-to').value || '';
+  renderDashboardSalesBlock();
+}
+
+function setDashPeriodPreset(preset) {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  let from = '', to = '';
+  const iso = (d) => d.toISOString().slice(0, 10);
+  if (preset === 'thisMonth') {
+    from = iso(new Date(y, m, 1));
+    to = iso(new Date(y, m + 1, 0));
+  } else if (preset === 'lastMonth') {
+    from = iso(new Date(y, m - 1, 1));
+    to = iso(new Date(y, m, 0));
+  } else if (preset === 'thisYear') {
+    from = `${y}-01-01`;
+    to = `${y}-12-31`;
+  } else if (preset === 'last12') {
+    from = iso(new Date(y, m - 11, 1));
+    to = iso(new Date(y, m + 1, 0));
+  } else if (preset === 'all') {
+    from = '';
+    to = '';
+  }
+  dashPeriodFrom = from;
+  dashPeriodTo = to;
+  const fromEl = document.getElementById('dash-date-from');
+  const toEl = document.getElementById('dash-date-to');
+  if (fromEl) fromEl.value = from;
+  if (toEl) toEl.value = to;
+  renderDashboardSalesBlock();
+}
+
+// 期間フィルタ（YYYY-MM-DD の文字列比較）
+function inDashPeriod(dateStr) {
+  if (!dateStr) return false;
+  if (dashPeriodFrom && dateStr < dashPeriodFrom) return false;
+  if (dashPeriodTo && dateStr > dashPeriodTo) return false;
+  return true;
+}
 
 function switchSalesView(mode) {
   dashboardSalesView = mode;
@@ -225,44 +272,42 @@ function renderDashboardSalesBlock() {
 }
 
 function renderDashboardCustomerSales() {
-  const invoices = getInvoices();
+  const allInvoices = getInvoices();
   const el = document.getElementById('monthly-sales-history');
   if (!el) return;
+  const invoices = (dashPeriodFrom || dashPeriodTo)
+    ? allInvoices.filter(inv => inDashPeriod(inv.invoiceDate))
+    : allInvoices;
   if (invoices.length === 0) {
-    el.innerHTML = '<div class="empty-state"><p>売上データがありません</p></div>';
+    const msg = (dashPeriodFrom || dashPeriodTo) ? '期間内の売上データがありません' : '売上データがありません';
+    el.innerHTML = `<div class="empty-state"><p>${msg}</p></div>`;
     return;
   }
-  // 顧客別集計
-  const now = new Date();
-  const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const map = {};
   invoices.forEach(inv => {
     const name = inv.customerName || '(未設定)';
-    if (!map[name]) map[name] = { count: 0, total: 0, cost: 0, monthTotal: 0, latest: '' };
+    if (!map[name]) map[name] = { count: 0, total: 0, cost: 0, latest: '' };
     map[name].count++;
     map[name].total += (inv.total || 0);
     map[name].cost += (inv.totalCost || 0);
-    if (inv.invoiceDate && inv.invoiceDate.startsWith(thisMonth)) {
-      map[name].monthTotal += (inv.total || 0);
-    }
     if (!map[name].latest || (inv.invoiceDate && inv.invoiceDate > map[name].latest)) {
       map[name].latest = inv.invoiceDate || '';
     }
   });
   const names = Object.keys(map).sort((a, b) => map[b].total - map[a].total);
   const grandTotal = names.reduce((s, n) => s + map[n].total, 0);
-  const grandMonthly = names.reduce((s, n) => s + map[n].monthTotal, 0);
+  const grandCost = names.reduce((s, n) => s + map[n].cost, 0);
+  const periodLabel = periodLabelText();
   let html = `
     <div style="margin-bottom:8px;font-size:0.9rem;color:var(--text-light);">
-      合計 ${names.length}顧客 / 累計売上 ${formatCurrency(grandTotal)} / 今月 ${formatCurrency(grandMonthly)}
+      ${escapeHtml(periodLabel)} / ${names.length}顧客 / 売上 ${formatCurrency(grandTotal)} / 粗利 ${formatCurrency(grandTotal - grandCost)}
     </div>
     <div class="table-wrap"><table>
       <thead><tr>
         <th>顧客名</th>
         <th class="text-right">件数</th>
-        <th class="text-right">今月売上</th>
-        <th class="text-right">累計売上</th>
-        <th class="text-right">累計粗利</th>
+        <th class="text-right">売上</th>
+        <th class="text-right">粗利</th>
         <th>最終請求日</th>
       </tr></thead>
       <tbody>
@@ -272,7 +317,6 @@ function renderDashboardCustomerSales() {
           return `<tr>
             <td>${escapeHtml(n)}</td>
             <td class="text-right">${d.count}</td>
-            <td class="text-right">${formatCurrency(d.monthTotal)}</td>
             <td class="text-right"><strong>${formatCurrency(d.total)}</strong></td>
             <td class="text-right">${formatCurrency(profit)}</td>
             <td>${escapeHtml(d.latest || '')}</td>
@@ -283,9 +327,20 @@ function renderDashboardCustomerSales() {
   el.innerHTML = html;
 }
 
+function periodLabelText() {
+  if (!dashPeriodFrom && !dashPeriodTo) return '全期間';
+  if (dashPeriodFrom && dashPeriodTo) return `${dashPeriodFrom} 〜 ${dashPeriodTo}`;
+  if (dashPeriodFrom) return `${dashPeriodFrom} 以降`;
+  return `${dashPeriodTo} 以前`;
+}
+
 function renderDashboardMonthlySales() {
-  const invoices = getInvoices();
-  const purchases = getPurchases();
+  const allInvoices = getInvoices();
+  const allPurchases = getPurchases();
+  const usingPeriod = dashPeriodFrom || dashPeriodTo;
+  const invoices = usingPeriod ? allInvoices.filter(inv => inDashPeriod(inv.invoiceDate)) : allInvoices;
+  const purchases = usingPeriod ? allPurchases.filter(p => inDashPeriod(p.date)) : allPurchases;
+
   const now = new Date();
   const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const monthlyMap = {};
@@ -307,11 +362,14 @@ function renderDashboardMonthlySales() {
   const monthlyEl = document.getElementById('monthly-sales-history');
   const monthKeys = Object.keys(monthlyMap).sort().reverse();
   if (monthKeys.length === 0) {
-    monthlyEl.innerHTML = '<div class="empty-state"><p>売上データがありません</p></div>';
+    const msg = usingPeriod ? '期間内の売上データがありません' : '売上データがありません';
+    monthlyEl.innerHTML = `<div class="empty-state"><p>${msg}</p></div>`;
     return;
   }
-  const recent6 = monthKeys.slice(0, 6);
-  const older = monthKeys.slice(6);
+  // 期間指定時は全部表示、指定なしなら従来通り最近6ヶ月+古い月セレクタ
+  const displayMonths = usingPeriod ? monthKeys : monthKeys.slice(0, 6);
+  const older = usingPeriod ? [] : monthKeys.slice(6);
+
   function monthLabel(m) { return m.replace('-', '年') + '月'; }
   function monthRow(m) {
     const d = monthlyMap[m];
@@ -326,8 +384,17 @@ function renderDashboardMonthlySales() {
       <td class="text-right">${formatCurrency(d.cost)}</td>
       <td class="text-right">${formatCurrency(profit)}</td></tr>`;
   }
-  let html = '<div class="table-wrap"><table><thead><tr><th>年月</th><th class="text-right">件数</th><th class="text-right">小計</th><th class="text-right">消費税</th><th class="text-right">売上合計</th><th class="text-right">仕入合計</th><th class="text-right">粗利</th></tr></thead><tbody>';
-  html += recent6.map(m => monthRow(m)).join('');
+
+  // 期間サマリー
+  const totalSum = displayMonths.reduce((s, m) => s + monthlyMap[m].total, 0);
+  const costSum = displayMonths.reduce((s, m) => s + monthlyMap[m].cost, 0);
+  const countSum = displayMonths.reduce((s, m) => s + monthlyMap[m].count, 0);
+  const summaryHtml = usingPeriod
+    ? `<div style="margin-bottom:8px;font-size:0.9rem;color:var(--text-light);">${escapeHtml(periodLabelText())} / ${displayMonths.length}ヶ月 / ${countSum}件 / 売上 ${formatCurrency(totalSum)} / 粗利 ${formatCurrency(totalSum - costSum)}</div>`
+    : '';
+
+  let html = summaryHtml + '<div class="table-wrap"><table><thead><tr><th>年月</th><th class="text-right">件数</th><th class="text-right">小計</th><th class="text-right">消費税</th><th class="text-right">売上合計</th><th class="text-right">仕入合計</th><th class="text-right">粗利</th></tr></thead><tbody>';
+  html += displayMonths.map(m => monthRow(m)).join('');
   html += '</tbody></table></div>';
   if (older.length > 0) {
     html += '<div style="margin-top:10px;display:flex;align-items:center;gap:8px;">' +

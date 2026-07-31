@@ -66,7 +66,20 @@
         <button class="btn btn-outline btn-sm" id="btn-sales-customer" onclick="switchSalesView('customer')">顧客別</button>
       </div>
     </div>
-    <div id="monthly-sales-history"></div>
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:10px;font-size:0.85rem;">
+      <span>期間:</span>
+      <input type="date" id="dash-date-from" onchange="onDashDateChange()" style="padding:4px 6px;border:1px solid var(--border);border-radius:4px;">
+      <span>〜</span>
+      <input type="date" id="dash-date-to" onchange="onDashDateChange()" style="padding:4px 6px;border:1px solid var(--border);border-radius:4px;">
+      <div style="display:flex;gap:4px;flex-wrap:wrap;">
+        <button class="btn btn-outline btn-sm" onclick="setDashPeriodPreset('thisMonth')">今月</button>
+        <button class="btn btn-outline btn-sm" onclick="setDashPeriodPreset('lastMonth')">先月</button>
+        <button class="btn btn-outline btn-sm" onclick="setDashPeriodPreset('thisYear')">今年</button>
+        <button class="btn btn-outline btn-sm" onclick="setDashPeriodPreset('last12')">直近12ヶ月</button>
+        <button class="btn btn-outline btn-sm" onclick="setDashPeriodPreset('all')">全期間</button>
+      </div>
+    </div>
+    <div id="monthly-sales-history" style="margin-top:10px;"></div>
   </div>
   <div class="card">
     <h2>最近の請求書</h2>
