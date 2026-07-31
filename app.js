@@ -2978,18 +2978,22 @@ async function scanDeliverySlip(event) {
   let firstDate = null, firstSlipNumber = '';
   let successCount = 0, failCount = 0;
 
+  const inventorySnapshot = getInventory();
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
-    showToast(`納品書 ${i + 1}/${files.length} を高精度解析中: ${file.name}（20-40秒）`, 'info');
+    showToast(`納品書 ${i + 1}/${files.length} を高精度解析中: ${file.name}(20-40秒)`, 'info');
     try {
       const parsed = await scanOneDeliverySlip(file);
       if (parsed && parsed.items && parsed.items.length > 0) {
         parsed.items.forEach(it => {
+          const name = (it.name || '').trim();
+          const existing = inventorySnapshot.find(x => x.name === name);
           deliverySlipItems.push({
-            name: it.name || '',
+            name,
             quantity: Number(it.quantity) || 0,
             unit: it.unit || '',
             unitPrice: Number(it.unitPrice) || 0,
+            retailPrice: existing ? (existing.retailPrice || 0) : 0,
             sourceFile: file.name,
             sourceDate: parsed.date || null
           });
@@ -3119,13 +3123,21 @@ function renderDeliverySlipItems() {
   const showSource = uniqueSources.length > 1;
   list.innerHTML = `
     ${showSource ? `<p style="font-size:0.85rem;color:var(--text-light);">取込元: ${uniqueSources.length}ファイル / ${deliverySlipItems.length}件</p>` : ''}
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;flex-wrap:wrap;font-size:0.85rem;">
+      <span>定価を一括設定:</span>
+      <button class="btn btn-outline btn-sm" onclick="setDsRetailFromCost(1.3)">単価×1.3</button>
+      <button class="btn btn-outline btn-sm" onclick="setDsRetailFromCost(1.5)">単価×1.5</button>
+      <button class="btn btn-outline btn-sm" onclick="setDsRetailFromCost(2.0)">単価×2.0</button>
+      <span style="color:var(--text-light);">既存商品は変更なし</span>
+    </div>
     <div class="table-wrap"><table>
       <thead><tr>
         ${showSource ? '<th style="width:90px;">取込元</th>' : ''}
         <th>商品名</th>
-        <th class="text-right" style="width:60px;">数量</th>
-        <th style="width:50px;">単位</th>
-        <th class="text-right" style="width:80px;">単価</th>
+        <th class="text-right" style="width:56px;">数量</th>
+        <th style="width:48px;">単位</th>
+        <th class="text-right" style="width:76px;">単価<br><span style="font-weight:normal;font-size:0.7rem;">(仕入)</span></th>
+        <th class="text-right" style="width:76px;">定価<br><span style="font-weight:normal;font-size:0.7rem;">(販売)</span></th>
         <th style="width:60px;">状態</th>
         <th style="width:40px;"></th>
       </tr></thead>
@@ -3138,13 +3150,20 @@ function renderDeliverySlipItems() {
           const sourceCell = showSource
             ? `<td style="font-size:0.75rem;color:var(--text-light);" title="${escapeAttr(it.sourceFile || '')}">${escapeHtml((it.sourceFile || '').slice(0, 12))}${it.sourceDate ? '<br>' + escapeHtml(it.sourceDate) : ''}</td>`
             : '';
+          const retailNote = existing
+            ? `<span style="font-size:0.7rem;color:var(--text-light);">現在: ${formatCurrency(existing.retailPrice || 0)}</span>`
+            : '';
           return `
           <tr>
             ${sourceCell}
             <td><input type="text" value="${escapeAttr(it.name)}" onchange="updateDsField(${idx},'name',this.value)" style="width:100%;padding:4px;"></td>
-            <td><input type="number" value="${it.quantity}" min="0" onchange="updateDsField(${idx},'quantity',this.value)" style="width:60px;padding:4px;text-align:right;"></td>
-            <td><input type="text" value="${escapeAttr(it.unit)}" onchange="updateDsField(${idx},'unit',this.value)" style="width:50px;padding:4px;"></td>
-            <td><input type="number" value="${it.unitPrice}" min="0" onchange="updateDsField(${idx},'unitPrice',this.value)" style="width:80px;padding:4px;text-align:right;"></td>
+            <td><input type="number" value="${it.quantity}" min="0" onchange="updateDsField(${idx},'quantity',this.value)" style="width:56px;padding:4px;text-align:right;"></td>
+            <td><input type="text" value="${escapeAttr(it.unit)}" onchange="updateDsField(${idx},'unit',this.value)" style="width:48px;padding:4px;"></td>
+            <td><input type="number" value="${it.unitPrice}" min="0" onchange="updateDsField(${idx},'unitPrice',this.value)" style="width:76px;padding:4px;text-align:right;"></td>
+            <td>
+              <input type="number" value="${it.retailPrice || 0}" min="0" onchange="updateDsField(${idx},'retailPrice',this.value)" style="width:76px;padding:4px;text-align:right;">
+              ${retailNote}
+            </td>
             <td>${statusTag}</td>
             <td><button class="btn btn-danger btn-sm" onclick="removeDsItem(${idx})">×</button></td>
           </tr>`;
@@ -3153,14 +3172,32 @@ function renderDeliverySlipItems() {
     </table></div>`;
 }
 
+// 単価×倍率で定価を一括計算（既存商品はスキップ）
+function setDsRetailFromCost(multiplier) {
+  const inventory = getInventory();
+  let count = 0;
+  deliverySlipItems.forEach(it => {
+    const existing = inventory.find(i => i.name === it.name);
+    if (existing) return; // 既存はスキップ
+    const price = it.unitPrice || 0;
+    if (price > 0) {
+      // 10円単位に切り上げ
+      it.retailPrice = Math.ceil(price * multiplier / 10) * 10;
+      count++;
+    }
+  });
+  renderDeliverySlipItems();
+  showToast(`新規${count}件の定価を単価×${multiplier}で設定`);
+}
+
 function updateDsField(idx, field, value) {
-  if (field === 'quantity' || field === 'unitPrice') value = parseInt(value, 10) || 0;
+  if (field === 'quantity' || field === 'unitPrice' || field === 'retailPrice') value = parseInt(value, 10) || 0;
   deliverySlipItems[idx][field] = value;
   renderDeliverySlipItems();
 }
 
 function addDsItem() {
-  deliverySlipItems.push({ name: '', quantity: 0, unit: '', unitPrice: 0 });
+  deliverySlipItems.push({ name: '', quantity: 0, unit: '', unitPrice: 0, retailPrice: 0 });
   renderDeliverySlipItems();
 }
 
@@ -3226,12 +3263,17 @@ function applyDeliverySlip() {
     const name = it.name.trim();
     const qty = it.quantity;
     const price = it.unitPrice || 0;
+    const retail = it.retailPrice || 0;
     const unit = it.unit || '';
     const existing = inventory.find(i => i.name === name);
     if (existing) {
       existing.quantity = (existing.quantity || 0) + qty;
       if (price > 0) existing.unitPrice = price;
       if (unit) existing.unit = unit;
+      // 定価: プレビューで既存値と異なる値が入力された場合のみ更新
+      if (retail > 0 && retail !== (existing.retailPrice || 0)) {
+        existing.retailPrice = retail;
+      }
       updatedCount++;
     } else {
       inventory.push({
@@ -3240,7 +3282,7 @@ function applyDeliverySlip() {
         quantity: qty,
         unit,
         unitPrice: price,
-        retailPrice: 0,
+        retailPrice: retail,
         category: chosenCategory
       });
       addedCount++;
