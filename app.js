@@ -2964,9 +2964,9 @@ JSON以外の説明文は不要です。`;
 let deliverySlipItems = [];
 
 async function scanDeliverySlip(event) {
-  const file = event.target.files[0];
+  const files = Array.from(event.target.files || []);
   event.target.value = '';
-  if (!file) return;
+  if (files.length === 0) return;
 
   const settings = getSettings();
   if (!settings.anthropicApiKey) {
@@ -2974,21 +2974,62 @@ async function scanDeliverySlip(event) {
     return;
   }
 
-  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
-  let dataUrl;
-  showToast('画像を準備中...', 'info');
-  try {
-    if (isPdf) {
-      dataUrl = await pdfFirstPageToDataUrl(file);
-    } else {
-      dataUrl = await fileToCompressedImage(file);
+  deliverySlipItems = [];
+  let firstDate = null, firstSlipNumber = '';
+  let successCount = 0, failCount = 0;
+
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    showToast(`納品書 ${i + 1}/${files.length} を処理中: ${file.name}`, 'info');
+    try {
+      const parsed = await scanOneDeliverySlip(file);
+      if (parsed && parsed.items && parsed.items.length > 0) {
+        parsed.items.forEach(it => {
+          deliverySlipItems.push({
+            name: it.name || '',
+            quantity: Number(it.quantity) || 0,
+            unit: it.unit || '',
+            unitPrice: Number(it.unitPrice) || 0,
+            sourceFile: file.name,
+            sourceDate: parsed.date || null
+          });
+        });
+        if (!firstDate && parsed.date) firstDate = parsed.date;
+        if (!firstSlipNumber && parsed.slipNumber) firstSlipNumber = parsed.slipNumber;
+        successCount++;
+      } else {
+        failCount++;
+      }
+    } catch (err) {
+      console.error(`${file.name}:`, err);
+      failCount++;
+      showToast(`${file.name} 解析失敗: ${err.message}`, 'error');
     }
-  } catch (err) {
-    showToast('画像処理エラー: ' + err.message, 'error');
+  }
+
+  if (deliverySlipItems.length === 0) {
+    showToast('商品を検出できませんでした', 'error');
     return;
   }
 
-  showToast('AIで納品書を解析中...（10-20秒）', 'info');
+  document.getElementById('ds-date').value = firstDate && /^\d{4}-\d{2}-\d{2}$/.test(firstDate)
+    ? firstDate : new Date().toISOString().slice(0, 10);
+  document.getElementById('ds-slip-number').value = firstSlipNumber || '';
+  populateDsCategoryDropdown();
+  renderDeliverySlipItems();
+  openModal('modal-delivery-slip');
+  const summary = files.length > 1
+    ? `${successCount}/${files.length}件の納品書から ${deliverySlipItems.length}商品を検出（失敗${failCount}件）`
+    : `${deliverySlipItems.length}件の商品を検出しました`;
+  showToast(summary);
+}
+
+// 1件の納品書ファイルを解析
+async function scanOneDeliverySlip(file) {
+  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+  const dataUrl = isPdf
+    ? await pdfFirstPageToDataUrl(file)
+    : await fileToCompressedImage(file);
   const prompt = `この納品書（または類似の商品リスト）の画像から、商品明細をJSON形式で抽出してください。
 {
   "date": "納品日 YYYY-MM-DD（読めなければnull）",
@@ -3004,30 +3045,8 @@ async function scanDeliverySlip(event) {
 }
 - 送料・値引き・合計行は items に含めないでください
 - JSON以外の説明文は不要です`;
-  try {
-    const text = await callClaudeVision(dataUrl, prompt, 4096);
-    const data = extractJson(text);
-    if (!data.items || !Array.isArray(data.items) || data.items.length === 0) {
-      showToast('商品を検出できませんでした', 'error');
-      return;
-    }
-    deliverySlipItems = data.items.map(it => ({
-      name: it.name || '',
-      quantity: Number(it.quantity) || 0,
-      unit: it.unit || '',
-      unitPrice: Number(it.unitPrice) || 0
-    }));
-    document.getElementById('ds-date').value = data.date && /^\d{4}-\d{2}-\d{2}$/.test(data.date)
-      ? data.date : new Date().toISOString().slice(0, 10);
-    document.getElementById('ds-slip-number').value = data.slipNumber || '';
-    populateDsCategoryDropdown();
-    renderDeliverySlipItems();
-    openModal('modal-delivery-slip');
-    showToast(`${deliverySlipItems.length}件の商品を検出しました`);
-  } catch (err) {
-    console.error('納品書解析エラー:', err);
-    showToast('解析失敗: ' + err.message, 'error');
-  }
+  const text = await callClaudeVision(dataUrl, prompt, 4096);
+  return extractJson(text);
 }
 
 function pdfFirstPageToDataUrl(file) {
@@ -3073,9 +3092,14 @@ function renderDeliverySlipItems() {
     return;
   }
   const inventory = getInventory();
+  // 複数納品書からの取込の場合、取込元列を表示
+  const uniqueSources = [...new Set(deliverySlipItems.map(it => it.sourceFile).filter(Boolean))];
+  const showSource = uniqueSources.length > 1;
   list.innerHTML = `
+    ${showSource ? `<p style="font-size:0.85rem;color:var(--text-light);">取込元: ${uniqueSources.length}ファイル / ${deliverySlipItems.length}件</p>` : ''}
     <div class="table-wrap"><table>
       <thead><tr>
+        ${showSource ? '<th style="width:90px;">取込元</th>' : ''}
         <th>商品名</th>
         <th class="text-right" style="width:60px;">数量</th>
         <th style="width:50px;">単位</th>
@@ -3089,8 +3113,12 @@ function renderDeliverySlipItems() {
           const statusTag = existing
             ? `<span style="color:#3498db;font-size:0.75rem;">既存</span>`
             : `<span style="color:#e67e22;font-size:0.75rem;">新規</span>`;
+          const sourceCell = showSource
+            ? `<td style="font-size:0.75rem;color:var(--text-light);" title="${escapeAttr(it.sourceFile || '')}">${escapeHtml((it.sourceFile || '').slice(0, 12))}${it.sourceDate ? '<br>' + escapeHtml(it.sourceDate) : ''}</td>`
+            : '';
           return `
           <tr>
+            ${sourceCell}
             <td><input type="text" value="${escapeAttr(it.name)}" onchange="updateDsField(${idx},'name',this.value)" style="width:100%;padding:4px;"></td>
             <td><input type="number" value="${it.quantity}" min="0" onchange="updateDsField(${idx},'quantity',this.value)" style="width:60px;padding:4px;text-align:right;"></td>
             <td><input type="text" value="${escapeAttr(it.unit)}" onchange="updateDsField(${idx},'unit',this.value)" style="width:50px;padding:4px;"></td>
@@ -3195,9 +3223,10 @@ function applyDeliverySlip() {
       });
       addedCount++;
     }
-    // 入庫ログにも記録
+    // 入庫ログにも記録（各明細の元納品書日付があればそちら優先）
     if (qty > 0 && price > 0) {
-      addPurchase(name, qty, price, dateStr);
+      const purchaseDate = it.sourceDate && /^\d{4}-\d{2}-\d{2}$/.test(it.sourceDate) ? it.sourceDate : dateStr;
+      addPurchase(name, qty, price, purchaseDate);
     }
   });
   setInventory(inventory);
