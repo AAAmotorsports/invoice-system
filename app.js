@@ -2910,6 +2910,7 @@ async function scanDeliverySlip(event) {
     document.getElementById('ds-date').value = data.date && /^\d{4}-\d{2}-\d{2}$/.test(data.date)
       ? data.date : new Date().toISOString().slice(0, 10);
     document.getElementById('ds-slip-number').value = data.slipNumber || '';
+    populateDsCategoryDropdown();
     renderDeliverySlipItems();
     openModal('modal-delivery-slip');
     showToast(`${deliverySlipItems.length}件の商品を検出しました`);
@@ -3008,6 +3009,39 @@ function removeDsItem(idx) {
   renderDeliverySlipItems();
 }
 
+// 納品書取込モーダルのカテゴリ選択
+function populateDsCategoryDropdown() {
+  const select = document.getElementById('ds-category-select');
+  if (!select) return;
+  const categories = [...new Set(getInventory().map(i => i.category).filter(c => c && c !== '未分類'))].sort((a, b) => a.localeCompare(b, 'ja'));
+  select.innerHTML = '<option value="">-- 未分類のまま --</option>'
+    + categories.map(c => `<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`).join('')
+    + '<option value="__new__">+ 新規カテゴリ</option>';
+  select.value = '';
+  const newInput = document.getElementById('ds-category-new');
+  if (newInput) { newInput.value = ''; newInput.style.display = 'none'; }
+}
+
+function onDsCategoryChange() {
+  const select = document.getElementById('ds-category-select');
+  const input = document.getElementById('ds-category-new');
+  if (select.value === '__new__') {
+    input.style.display = 'block';
+    input.focus();
+  } else {
+    input.style.display = 'none';
+    input.value = '';
+  }
+}
+
+function getSelectedDsCategory() {
+  const select = document.getElementById('ds-category-select');
+  if (select.value === '__new__') {
+    return (document.getElementById('ds-category-new').value || '').trim();
+  }
+  return select.value || '';
+}
+
 function applyDeliverySlip() {
   if (deliverySlipItems.length === 0) {
     showToast('明細がありません', 'error'); return;
@@ -3017,7 +3051,9 @@ function applyDeliverySlip() {
     showToast('有効な明細がありません（商品名と数量が必要）', 'error'); return;
   }
   const dateStr = document.getElementById('ds-date').value || new Date().toISOString().slice(0, 10);
-  if (!confirm(`${validItems.length}件を在庫に反映しますか？\n・既存商品は数量を加算\n・新規商品は登録\n・入庫ログにも記録`)) return;
+  const chosenCategory = getSelectedDsCategory();
+  const categoryLabel = chosenCategory || '未分類';
+  if (!confirm(`${validItems.length}件を在庫に反映しますか？\n・カテゴリ: ${categoryLabel}\n・既存商品は数量を加算（カテゴリは変更なし）\n・新規商品はこのカテゴリで登録\n・入庫ログにも記録`)) return;
 
   const inventory = getInventory();
   let addedCount = 0, updatedCount = 0;
@@ -3040,7 +3076,7 @@ function applyDeliverySlip() {
         unit,
         unitPrice: price,
         retailPrice: 0,
-        category: ''
+        category: chosenCategory
       });
       addedCount++;
     }
