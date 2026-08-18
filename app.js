@@ -3617,3 +3617,192 @@ function applyDeliverySlip() {
   showToast(`反映完了: 既存 ${updatedCount}件更新 / 新規 ${addedCount}件追加`);
   deliverySlipItems = [];
 }
+
+
+// ===================================================
+// COMBINED INVOICE (合計請求書)
+// 複数の請求書と入金をまとめて1枚のPDF
+// ===================================================
+let ciPayments = []; // {id, date, amount}
+
+function showCombinedInvoiceModal() {
+  ciPayments = [];
+  document.getElementById('ci-date').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('ci-notes').value = '';
+  document.getElementById('ci-invoices-section').style.display = 'none';
+  // 顧客ドロップダウン
+  const select = document.getElementById('ci-customer-select');
+  const invoices = getInvoices().filter(inv => !inv.type || inv.type === 'sale');
+  const customers = [...new Set(invoices.map(i => i.customerName).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ja'));
+  select.innerHTML = '<option value="">-- 顧客を選択 --</option>'
+    + customers.map(c => `<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`).join('');
+  select.value = '';
+  openModal('modal-combined-invoice');
+}
+
+function onCiCustomerChange() {
+  const name = document.getElementById('ci-customer-select').value;
+  const section = document.getElementById('ci-invoices-section');
+  if (!name) { section.style.display = 'none'; return; }
+  section.style.display = 'block';
+  renderCiInvoicesList(name);
+  renderCiPayments();
+  updateCiTotal();
+}
+
+function renderCiInvoicesList(customerName) {
+  const invoices = getInvoices()
+    .filter(inv => (!inv.type || inv.type === 'sale') && inv.customerName === customerName)
+    .sort((a, b) => (a.invoiceDate || '').localeCompare(b.invoiceDate || ''));
+  const list = document.getElementById('ci-invoices-list');
+  if (invoices.length === 0) {
+    list.innerHTML = '<p style="color:var(--text-light);font-size:0.9rem;">この顧客の請求書はありません</p>';
+    return;
+  }
+  list.innerHTML = invoices.map(inv => `
+    <label style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid var(--border);cursor:pointer;">
+      <input type="checkbox" class="ci-inv-check" value="${inv.id}" ${inv.paid ? '' : 'checked'} onchange="updateCiTotal()">
+      <div style="flex:1;font-size:0.9rem;">
+        <div><strong>${escapeHtml(inv.invoiceDate || '')}</strong> No.${escapeHtml(inv.invoiceNumber || '')} — ${escapeHtml(inv.subject || '')}</div>
+        <div style="font-size:0.75rem;color:var(--text-light);">${inv.paid ? '✅ 入金済み' : '⚠️ 未入金'} ${inv.sent ? '/ 送付済' : ''}</div>
+      </div>
+      <div style="font-weight:bold;">${formatCurrency(inv.total)}</div>
+    </label>
+  `).join('');
+}
+
+function renderCiPayments() {
+  const list = document.getElementById('ci-payments-list');
+  if (ciPayments.length === 0) {
+    list.innerHTML = '<p style="color:var(--text-light);font-size:0.85rem;padding:4px 0;">入金なし</p>';
+    return;
+  }
+  list.innerHTML = ciPayments.map((p, idx) => `
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px;">
+      <input type="date" value="${p.date}" onchange="updateCiPayment(${idx},'date',this.value)" style="padding:4px;border:1px solid var(--border);border-radius:4px;">
+      <span>ご入金</span>
+      <input type="number" value="${p.amount}" min="0" onchange="updateCiPayment(${idx},'amount',this.value)" placeholder="金額" style="width:120px;padding:4px;border:1px solid var(--border);border-radius:4px;text-align:right;">
+      <span>円</span>
+      <button class="btn btn-danger btn-sm" onclick="removeCiPayment(${idx})">×</button>
+    </div>
+  `).join('');
+}
+
+function addCiPayment() {
+  ciPayments.push({
+    id: generateId(),
+    date: new Date().toISOString().slice(0, 10),
+    amount: 0
+  });
+  renderCiPayments();
+  updateCiTotal();
+}
+
+function updateCiPayment(idx, field, value) {
+  if (field === 'amount') value = parseInt(value, 10) || 0;
+  ciPayments[idx][field] = value;
+  updateCiTotal();
+}
+
+function removeCiPayment(idx) {
+  ciPayments.splice(idx, 1);
+  renderCiPayments();
+  updateCiTotal();
+}
+
+function updateCiTotal() {
+  const checked = document.querySelectorAll('.ci-inv-check:checked');
+  const ids = new Set(Array.from(checked).map(cb => cb.value));
+  const invoices = getInvoices();
+  let sum = 0;
+  invoices.forEach(inv => {
+    if (ids.has(inv.id)) sum += (inv.total || 0);
+  });
+  ciPayments.forEach(p => { sum -= Math.abs(p.amount || 0); });
+  document.getElementById('ci-total').textContent = formatCurrency(sum);
+}
+
+function formatMDLabel(dateStr) {
+  if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return '';
+  const mo = parseInt(dateStr.slice(5, 7), 10);
+  const day = parseInt(dateStr.slice(8, 10), 10);
+  return `${mo}/${day}`;
+}
+
+async function issueCombinedInvoice() {
+  const customerName = document.getElementById('ci-customer-select').value;
+  const invoiceDate = document.getElementById('ci-date').value;
+  const notes = document.getElementById('ci-notes').value.trim();
+
+  if (!customerName) { showToast('顧客を選択してください', 'error'); return; }
+  if (!invoiceDate) { showToast('請求日を入力してください', 'error'); return; }
+
+  const checked = document.querySelectorAll('.ci-inv-check:checked');
+  const ids = new Set(Array.from(checked).map(cb => cb.value));
+  if (ids.size === 0 && ciPayments.length === 0) {
+    showToast('請求書を1件以上選ぶか、入金を追加してください', 'error');
+    return;
+  }
+
+  const allInvoices = getInvoices();
+  const included = allInvoices.filter(inv => ids.has(inv.id));
+
+  // 明細を構築（日付順）
+  const rows = [];
+  included.forEach(inv => {
+    rows.push({
+      date: inv.invoiceDate || '',
+      description: `${formatMDLabel(inv.invoiceDate)} No.${inv.invoiceNumber || ''}`,
+      amount: inv.total || 0
+    });
+  });
+  ciPayments.forEach(p => {
+    if (!p.amount) return;
+    rows.push({
+      date: p.date || '',
+      description: `${formatMDLabel(p.date)} ご入金`,
+      amount: -Math.abs(p.amount)
+    });
+  });
+  rows.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+
+  const items = rows.map(r => ({
+    description: r.description,
+    quantity: 1,
+    unit: '',
+    unitPrice: r.amount,
+    amount: r.amount
+  }));
+  const total = items.reduce((s, it) => s + it.amount, 0);
+
+  // 合計請求書用の一時的な invoice オブジェクト（保存はしない、PDFのみ）
+  const invoice = {
+    id: generateId(),
+    invoiceNumber: 'S' + invoiceDate.replace(/-/g, ''),
+    customerName,
+    honorific: '様',
+    subject: '合計請求書',
+    invoiceDate,
+    dueDate: '',
+    items,
+    subtotal: total,
+    taxRate: 0,
+    tax: 0,
+    total: total,
+    totalCost: 0,
+    notes,
+    createdAt: Date.now(),
+    sent: false,
+    paid: false,
+    type: 'combined'
+  };
+
+  try {
+    await generateInvoicePDF(invoice, getSettings());
+    showToast('合計請求書PDFを発行しました');
+    closeModal('modal-combined-invoice');
+  } catch (err) {
+    console.error('合計請求書PDF生成エラー:', err);
+    showToast('PDF生成に失敗しました: ' + err.message, 'error');
+  }
+}

@@ -245,6 +245,7 @@
     <h2>請求書履歴</h2>
     <div class="toolbar">
       <input type="text" class="form-control search-input" id="history-search" placeholder="顧客名・件名で検索...">
+      <button class="btn btn-primary" onclick="showCombinedInvoiceModal()">📋 合計請求書を作成</button>
     </div>
     <div id="history-bulk-bar" class="bulk-bar" style="display:none;">
       <span id="history-checked-count">0件選択中</span>
@@ -659,6 +660,52 @@
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeModal('modal-invoice-edit')">キャンセル</button>
       <button class="btn btn-primary" onclick="saveEditedInvoice()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Combined Invoice Modal (合計請求書作成) -->
+<div class="modal-overlay" id="modal-combined-invoice">
+  <div class="modal" style="max-width:720px;max-height:90vh;overflow-y:auto;">
+    <h3>合計請求書を作成</h3>
+    <p style="font-size:0.85rem;color:var(--text-light);margin:0 0 10px;">
+      顧客の複数の請求書と入金をまとめて1枚のPDFにします。消費税は0円（元請求書に含まれるため）
+    </p>
+    <div class="form-row">
+      <div class="form-group">
+        <label>顧客</label>
+        <select class="form-control" id="ci-customer-select" onchange="onCiCustomerChange()">
+          <option value="">-- 顧客を選択 --</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>請求日</label>
+        <input type="date" class="form-control" id="ci-date">
+      </div>
+    </div>
+
+    <div id="ci-invoices-section" style="display:none;">
+      <h4 style="margin:12px 0 6px;">対象請求書</h4>
+      <p style="font-size:0.8rem;color:var(--text-light);margin:0 0 6px;">チェックした請求書が明細に含まれます（未入金がデフォルト選択）</p>
+      <div id="ci-invoices-list"></div>
+
+      <h4 style="margin:12px 0 6px;">入金履歴（マイナス金額として計上）</h4>
+      <div id="ci-payments-list"></div>
+      <button class="btn btn-outline btn-sm" onclick="addCiPayment()" style="margin-top:4px;">+ 入金を追加</button>
+
+      <div class="summary-box" style="margin-top:12px;">
+        <div class="summary-row"><span>明細合計（差引後）</span><span id="ci-total">0円</span></div>
+      </div>
+
+      <div class="form-group" style="margin-top:12px;">
+        <label>備考</label>
+        <textarea class="form-control" id="ci-notes" placeholder="備考（任意）"></textarea>
+      </div>
+    </div>
+
+    <div class="modal-actions" style="justify-content:space-between;">
+      <button class="btn btn-outline" onclick="closeModal('modal-combined-invoice')">キャンセル</button>
+      <button class="btn btn-primary" onclick="issueCombinedInvoice()">合計請求書を発行（PDF）</button>
     </div>
   </div>
 </div>
