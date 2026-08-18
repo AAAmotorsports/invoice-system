@@ -430,8 +430,8 @@ function renderDashboard() {
   document.getElementById('dashboard-stats').innerHTML = `
     <div class="stat-card"><div class="stat-value">${totalInvoices}</div><div class="stat-label">発行済み請求書</div></div>
     <div class="stat-card"><div class="stat-value">${totalItems}</div><div class="stat-label">在庫商品数</div></div>
-    <div class="stat-card"><div class="stat-value">${formatCurrency(monthlyRevenue)}</div><div class="stat-label">今月の売上</div></div>
-    <div class="stat-card"><div class="stat-value">${formatCurrency(monthlyCost)}</div><div class="stat-label">今月の仕入</div></div>
+    <div class="stat-card" title="${thisMonth}月の請求書 ${monthInvoices.length}件"><div class="stat-value">${formatCurrency(monthlyRevenue)}</div><div class="stat-label">今月の売上 (${monthInvoices.length}件)</div></div>
+    <div class="stat-card" title="${thisMonth}月の入庫 ${monthPurchases.length}件"><div class="stat-value">${formatCurrency(monthlyCost)}</div><div class="stat-label">今月の仕入 (${monthPurchases.length}件)</div></div>
     <div class="stat-card"><div class="stat-value">${formatCurrency(monthlyProfit)}</div><div class="stat-label">今月の粗利</div></div>
   `;
 
@@ -3614,6 +3614,7 @@ function applyDeliverySlip() {
   setInventory(inventory);
   closeModal('modal-delivery-slip');
   renderInventory();
+  // ダッシュボードのキャッシュを更新（次回タブ切替時に再計算）
   showToast(`反映完了: 既存 ${updatedCount}件更新 / 新規 ${addedCount}件追加`);
   deliverySlipItems = [];
 }
