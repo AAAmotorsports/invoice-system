@@ -10,6 +10,39 @@
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icon-192.png">
   <link rel="stylesheet" href="style.css">
+  <style>
+    html.locked > body > *:not(#gate) { display: none !important; }
+    #gate { position: fixed; inset: 0; background: linear-gradient(135deg, #1a1f2e 0%, #2d3548 100%); z-index: 99999; display: flex; align-items: center; justify-content: center; padding: 20px; }
+    #gate .box { background: #fff; border-radius: 14px; padding: 32px 28px; max-width: 360px; width: 100%; box-shadow: 0 12px 40px rgba(0,0,0,0.35); text-align: center; }
+    #gate h1 { margin: 0 0 4px; font-size: 1.4rem; color: #1a1f2e; }
+    #gate .sub { color: #666; font-size: 0.85rem; margin: 0 0 20px; }
+    #gate form { display: flex; flex-direction: column; gap: 10px; }
+    #gate input { padding: 12px 14px; font-size: 1rem; border: 2px solid #ddd; border-radius: 8px; outline: none; }
+    #gate input:focus { border-color: #3498db; }
+    #gate button { padding: 12px; font-size: 1rem; font-weight: bold; background: #3498db; color: #fff; border: none; border-radius: 8px; cursor: pointer; }
+    #gate button:hover { background: #2980b9; }
+    #gate .err { color: #e74c3c; font-size: 0.85rem; min-height: 1em; }
+  </style>
+  <script>
+    (function(){
+      var H="9b9ec86a6ab45c37ab17b86a2fa8b054b330db8f29d10d2f714a607732466a88";
+      if(sessionStorage.getItem("invsys_ok")==="1")return;
+      document.documentElement.classList.add("locked");
+      async function sha(s){var b=new TextEncoder().encode(s);var d=await crypto.subtle.digest("SHA-256",b);return Array.from(new Uint8Array(d)).map(function(x){return x.toString(16).padStart(2,"0")}).join("")}
+      document.addEventListener("DOMContentLoaded",function(){
+        var g=document.createElement("div");g.id="gate";
+        g.innerHTML='<div class="box"><h1>🔒 請求書発行システム</h1><p class="sub">パスワードで保護されています</p><form id="gf"><input id="gp" type="password" autocomplete="current-password" placeholder="Password" autofocus><button type="submit">開く</button><div class="err" id="ge"></div></form></div>';
+        document.body.insertBefore(g,document.body.firstChild);
+        document.getElementById("gf").addEventListener("submit",async function(e){
+          e.preventDefault();
+          var v=document.getElementById("gp").value;
+          var h=await sha(v);
+          if(h===H){sessionStorage.setItem("invsys_ok","1");document.documentElement.classList.remove("locked");g.remove();}
+          else{document.getElementById("ge").textContent="パスワードが違います";document.getElementById("gp").value="";document.getElementById("gp").focus();}
+        });
+      });
+    })();
+  </script>
 </head>
 <body>
 
