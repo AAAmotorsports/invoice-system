@@ -167,10 +167,22 @@ async function initialSync() {
         } else if (remoteData.invoices) {
           localStorage.setItem(STORAGE_KEYS.invoices, JSON.stringify(remoteData.invoices));
         }
-        if (remoteData.settings_json) {
-          localStorage.setItem(STORAGE_KEYS.settings, remoteData.settings_json);
-        } else if (remoteData.settings) {
-          localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(remoteData.settings));
+        if (remoteData.settings_json || remoteData.settings) {
+          // APIキーはローカルのを保持
+          try {
+            const remoteSettings = remoteData.settings_json
+              ? JSON.parse(remoteData.settings_json)
+              : remoteData.settings;
+            const localApiKey = (JSON.parse(localStorage.getItem(STORAGE_KEYS.settings) || '{}')).anthropicApiKey || '';
+            remoteSettings.anthropicApiKey = localApiKey;
+            localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(remoteSettings));
+          } catch(e) {
+            if (remoteData.settings_json) {
+              localStorage.setItem(STORAGE_KEYS.settings, remoteData.settings_json);
+            } else if (remoteData.settings) {
+              localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(remoteData.settings));
+            }
+          }
         }
         if (remoteData.customers_json) {
           localStorage.setItem(STORAGE_KEYS.customers, remoteData.customers_json);
