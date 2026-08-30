@@ -3292,14 +3292,22 @@ async function scanDeliverySlip(event) {
         parsed.items.forEach(it => {
           const name = (it.name || '').trim();
           const existing = inventorySnapshot.find(x => x.name === name);
-          // AIが定価を読み取った場合はそれを優先、無ければ既存商品の定価
-          const aiRetail = Number(it.retailPrice) || 0;
+          const unit = Number(it.unitPrice) || 0;
+          let aiRetail = Number(it.retailPrice) || 0;
+          // サニティチェック: 定価 < 単価 は誤読（末尾桁落ち）の可能性大 → 10倍
+          if (aiRetail > 0 && unit > 0 && aiRetail < unit) {
+            const tenTimes = aiRetail * 10;
+            if (tenTimes >= unit) {
+              console.warn(`定価誤読疑い: ${name} 単価${unit} 定価${aiRetail} → ${tenTimes}に補正`);
+              aiRetail = tenTimes;
+            }
+          }
           const retail = aiRetail > 0 ? aiRetail : (existing ? (existing.retailPrice || 0) : 0);
           deliverySlipItems.push({
             name,
             quantity: Number(it.quantity) || 0,
             unit: it.unit || '',
-            unitPrice: Number(it.unitPrice) || 0,
+            unitPrice: unit,
             retailPrice: retail,
             sourceFile: file.name,
             sourceDate: parsed.date || null
@@ -3388,6 +3396,14 @@ async function scanOneDeliverySlip(file) {
 - 1つの価格しか無い納品書もあります。その場合は unitPrice に入れ、retailPrice は 0
 - 「掛率」「掛」だけ書いてある場合は計算しない（0のまま）
 
+【価格の桁数チェック（極めて重要）】
+- **定価は必ず単価以上**（同じか大きい値）。定価 < 単価 は物理的にあり得ない
+- 定価 < 単価 になる場合は末尾桁を読み落としている可能性大 → 桁数を数え直す
+- 例: 単価 11,840円 で定価が 1,480 に見えたら **絶対に誤読**。正しくは 14,800 のはず
+- 定価は多くの場合 5桁 or 6桁（例: 14800, 111000, 52000）
+- カンマなしで詰めて書かれている場合、末尾の 0 を1つ落としがち → 気をつける
+- 単価と定価が同じ値になっている場合はそれで OK（掛率100%）
+
 明細行が本当に無ければ items: [] を返してください。JSON以外の説明は不要です。`;
   const text = await callClaudeVision(dataUrl, prompt, 4096, 'claude-sonnet-5');
   return extractJson(text);
@@ -3448,10 +3464,10 @@ function renderDeliverySlipItems() {
       <button class="btn btn-outline btn-sm" onclick="setDsRetailFromCost(2.0)">単価×2.0</button>
       <span style="color:var(--text-light);">既存商品は変更なし</span>
     </div>
-    <div class="table-wrap"><table>
+    <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;"><table style="min-width:640px;">
       <thead><tr>
         ${showSource ? '<th style="width:90px;">取込元</th>' : ''}
-        <th>商品名</th>
+        <th style="min-width:200px;">商品名</th>
         <th class="text-right" style="width:56px;">数量</th>
         <th style="width:48px;">単位</th>
         <th class="text-right" style="width:76px;">単価<br><span style="font-weight:normal;font-size:0.7rem;">(仕入)</span></th>
@@ -3471,13 +3487,17 @@ function renderDeliverySlipItems() {
           const retailNote = existing
             ? `<span style="font-size:0.7rem;color:var(--text-light);">現在: ${formatCurrency(existing.retailPrice || 0)}</span>`
             : '';
+          // 定価誤読警告: 定価 < 単価 なら警告
+          const priceWarn = (it.retailPrice > 0 && it.unitPrice > 0 && it.retailPrice < it.unitPrice)
+            ? `<div style="font-size:0.7rem;color:#e74c3c;">⚠️定価<単価</div>`
+            : '';
           return `
           <tr>
             ${sourceCell}
-            <td><input type="text" value="${escapeAttr(it.name)}" onchange="updateDsField(${idx},'name',this.value)" style="width:100%;padding:4px;"></td>
+            <td><input type="text" value="${escapeAttr(it.name)}" onchange="updateDsField(${idx},'name',this.value)" style="width:100%;min-width:180px;padding:4px;"></td>
             <td><input type="number" value="${it.quantity}" min="0" onchange="updateDsField(${idx},'quantity',this.value)" style="width:56px;padding:4px;text-align:right;"></td>
             <td><input type="text" value="${escapeAttr(it.unit)}" onchange="updateDsField(${idx},'unit',this.value)" style="width:48px;padding:4px;"></td>
-            <td><input type="number" value="${it.unitPrice}" min="0" onchange="updateDsField(${idx},'unitPrice',this.value)" style="width:76px;padding:4px;text-align:right;"></td>
+            <td><input type="number" value="${it.unitPrice}" min="0" onchange="updateDsField(${idx},'unitPrice',this.value)" style="width:76px;padding:4px;text-align:right;">${priceWarn}</td>
             <td>
               <input type="number" value="${it.retailPrice || 0}" min="0" onchange="updateDsField(${idx},'retailPrice',this.value)" style="width:76px;padding:4px;text-align:right;">
               ${retailNote}

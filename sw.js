@@ -1,4 +1,4 @@
-const CACHE_NAME = 'invoice-system-v54';
+const CACHE_NAME = 'invoice-system-v55';
 const ASSETS = [
   './',
   './index.html',
