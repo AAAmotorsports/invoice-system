@@ -2845,20 +2845,52 @@ function uploadReceiptImage(event, idx) {
   event.target.value = '';
 }
 
-function handleImageReceipt(file, idx) {
-  const reader = new FileReader();
-  reader.onload = function(e) {
-    const img = new Image();
-    img.onload = function() {
-      const compressed = compressImageDataURL(img, 1000, 0.75);
-      currentExpenseItems[idx].receiptImage = compressed;
-      currentExpenseItems[idx].receiptFilename = file.name;
-      renderExpenseItems();
-      showToast('領収書を添付しました');
-    };
-    img.src = e.target.result;
-  };
-  reader.readAsDataURL(file);
+async function handleImageReceipt(file, idx) {
+  try {
+    // EXIF orientation を尊重する共通関数を使う
+    // ただし 領収書は 1000px 上限、JPEG 75%
+    let dataUrl;
+    if (typeof createImageBitmap === 'function') {
+      try {
+        const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+        const MAX_SIZE = 1000;
+        let w = bitmap.width, h = bitmap.height;
+        if (w > MAX_SIZE || h > MAX_SIZE) {
+          if (w > h) { h = Math.round(h * MAX_SIZE / w); w = MAX_SIZE; }
+          else { w = Math.round(w * MAX_SIZE / h); h = MAX_SIZE; }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(bitmap, 0, 0, w, h);
+        bitmap.close && bitmap.close();
+        dataUrl = canvas.toDataURL('image/jpeg', 0.75);
+      } catch (e) {
+        console.warn('createImageBitmap 失敗、フォールバック:', e);
+      }
+    }
+    if (!dataUrl) {
+      dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+          const img = new Image();
+          img.onload = () => resolve(compressImageDataURL(img, 1000, 0.75));
+          img.onerror = () => reject(new Error('画像読込失敗'));
+          img.src = e.target.result;
+        };
+        reader.onerror = () => reject(new Error('ファイル読込失敗'));
+        reader.readAsDataURL(file);
+      });
+    }
+    currentExpenseItems[idx].receiptImage = dataUrl;
+    currentExpenseItems[idx].receiptFilename = file.name;
+    renderExpenseItems();
+    showToast('領収書を添付しました');
+  } catch (err) {
+    showToast('画像処理エラー: ' + err.message, 'error');
+  }
 }
 
 function compressImageDataURL(img, maxSize, quality) {
@@ -3424,7 +3456,31 @@ function pdfFirstPageToDataUrl(file) {
   });
 }
 
-function fileToCompressedImage(file) {
+async function fileToCompressedImage(file) {
+  // createImageBitmap で EXIF orientation を正しく処理（iPhone カメラ画像の向き対応）
+  if (typeof createImageBitmap === 'function') {
+    try {
+      const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+      const MAX_SIZE = 1400;
+      let w = bitmap.width, h = bitmap.height;
+      if (w > MAX_SIZE || h > MAX_SIZE) {
+        if (w > h) { h = Math.round(h * MAX_SIZE / w); w = MAX_SIZE; }
+        else { w = Math.round(w * MAX_SIZE / h); h = MAX_SIZE; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(bitmap, 0, 0, w, h);
+      bitmap.close && bitmap.close();
+      return canvas.toDataURL('image/jpeg', 0.85);
+    } catch (e) {
+      console.warn('createImageBitmap 失敗、フォールバック:', e);
+    }
+  }
+  // フォールバック: 従来の Image オブジェクト方式
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
