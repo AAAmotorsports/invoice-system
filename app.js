@@ -1,7 +1,7 @@
 /* ===================================================
    請求書発行システム - メインアプリケーション
    =================================================== */
-window.APP_VERSION = '58';
+window.APP_VERSION = '59';
 
 // ---- Data Store ----
 const STORAGE_KEYS = {
@@ -264,6 +264,52 @@ function switchSalesView(mode) {
   renderDashboardSalesBlock();
 }
 
+// ダッシュボード: バックアップ状況バナー
+function renderBackupBanner() {
+  const container = document.getElementById('dashboard-stats');
+  if (!container) return;
+  // 既存のバナー削除
+  const existing = document.getElementById('backup-banner');
+  if (existing) existing.remove();
+
+  const lastRaw = localStorage.getItem('invoice_sys_lastBackup');
+  const now = Date.now();
+  let color, bg, icon, text, actionBtn;
+
+  if (!lastRaw) {
+    color = '#e74c3c'; bg = '#fdedec'; icon = '⚠️';
+    text = 'まだ一度もローカルバックアップしていません。クラウド同期は動いていますが、月1回のJSONバックアップ推奨。';
+    actionBtn = '<button class="btn btn-danger btn-sm" onclick="jumpToBackup()">今すぐバックアップ</button>';
+  } else {
+    const lastDate = new Date(lastRaw);
+    const days = Math.floor((now - lastDate.getTime()) / (24 * 3600 * 1000));
+    const dateStr = lastDate.toISOString().slice(0, 10);
+    if (days >= 30) {
+      color = '#e67e22'; bg = '#fef5e7'; icon = '⏰';
+      text = `最終バックアップ: ${dateStr}（${days}日前）— 月1回の推奨を超えました`;
+      actionBtn = '<button class="btn btn-primary btn-sm" onclick="jumpToBackup()">バックアップする</button>';
+    } else {
+      color = '#27ae60'; bg = '#eafaf1'; icon = '✅';
+      text = `最終バックアップ: ${dateStr}（${days}日前）— 順調です`;
+      actionBtn = '';
+    }
+  }
+
+  const banner = document.createElement('div');
+  banner.id = 'backup-banner';
+  banner.style.cssText = `background:${bg};color:${color};border-left:4px solid ${color};padding:10px 14px;border-radius:6px;margin-top:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:0.9rem;`;
+  banner.innerHTML = `<div>${icon} ${text}</div>${actionBtn}`;
+  container.insertAdjacentElement('afterend', banner);
+}
+
+function jumpToBackup() {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const btn = document.querySelector('.tab-btn[data-tab="backup"]');
+  if (btn) btn.classList.add('active');
+  document.getElementById('page-backup').classList.add('active');
+}
+
 function renderDashboardSalesBlock() {
   if (dashboardSalesView === 'customer') {
     renderDashboardCustomerSales();
@@ -435,6 +481,9 @@ function renderDashboard() {
     <div class="stat-card" title="${thisMonth}月の入庫 ${monthPurchases.length}件"><div class="stat-value">${formatCurrency(monthlyCost)}</div><div class="stat-label">今月の仕入 (${monthPurchases.length}件)</div></div>
     <div class="stat-card"><div class="stat-value">${formatCurrency(monthlyProfit)}</div><div class="stat-label">今月の粗利</div></div>
   `;
+
+  // バックアップ状況バナー
+  renderBackupBanner();
 
   // 月別 or 顧客別 売上履歴（切替）
   renderDashboardSalesBlock();
@@ -2471,7 +2520,10 @@ function exportBackup() {
   a.download = `invoice_backup_${new Date().toISOString().slice(0, 10)}.json`;
   a.click();
   URL.revokeObjectURL(url);
+  // 最終バックアップ日時を記録（ダッシュボード表示用）
+  localStorage.setItem('invoice_sys_lastBackup', new Date().toISOString());
   showToast('バックアップをエクスポートしました');
+  renderDashboard();
 }
 
 function importBackup(event) {
