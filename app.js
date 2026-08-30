@@ -3293,15 +3293,8 @@ async function scanDeliverySlip(event) {
           const name = (it.name || '').trim();
           const existing = inventorySnapshot.find(x => x.name === name);
           const unit = Number(it.unitPrice) || 0;
-          let aiRetail = Number(it.retailPrice) || 0;
-          // サニティチェック: 定価 < 単価 は誤読（末尾桁落ち）の可能性大 → 10倍
-          if (aiRetail > 0 && unit > 0 && aiRetail < unit) {
-            const tenTimes = aiRetail * 10;
-            if (tenTimes >= unit) {
-              console.warn(`定価誤読疑い: ${name} 単価${unit} 定価${aiRetail} → ${tenTimes}に補正`);
-              aiRetail = tenTimes;
-            }
-          }
+          const aiRetail = Number(it.retailPrice) || 0;
+          // AIが定価を読み取った場合はそのまま使用（自動補正はしない、変な値は警告表示で対処）
           const retail = aiRetail > 0 ? aiRetail : (existing ? (existing.retailPrice || 0) : 0);
           deliverySlipItems.push({
             name,
@@ -3484,12 +3477,16 @@ function renderDeliverySlipItems() {
           const sourceCell = showSource
             ? `<td style="font-size:0.75rem;color:var(--text-light);" title="${escapeAttr(it.sourceFile || '')}">${escapeHtml((it.sourceFile || '').slice(0, 12))}${it.sourceDate ? '<br>' + escapeHtml(it.sourceDate) : ''}</td>`
             : '';
-          const retailNote = existing
-            ? `<span style="font-size:0.7rem;color:var(--text-light);">現在: ${formatCurrency(existing.retailPrice || 0)}</span>`
-            : '';
-          // 定価誤読警告: 定価 < 単価 なら警告
-          const priceWarn = (it.retailPrice > 0 && it.unitPrice > 0 && it.retailPrice < it.unitPrice)
-            ? `<div style="font-size:0.7rem;color:#e74c3c;">⚠️定価<単価</div>`
+          // 定価異常検知: 3パターン
+          const isRetailLow = it.retailPrice > 0 && it.unitPrice > 0 && it.retailPrice < it.unitPrice;
+          const isRetailZeroNew = !existing && (!it.retailPrice || it.retailPrice === 0);
+          const retailBorder = isRetailLow ? '2px solid #e74c3c' : (isRetailZeroNew ? '2px solid #f39c12' : '1px solid #ccc');
+          const retailBg = isRetailLow ? '#fff5f5' : (isRetailZeroNew ? '#fffaf0' : '#fff');
+          const retailWarn = isRetailLow
+            ? `<div style="font-size:0.7rem;color:#e74c3c;font-weight:bold;">⚠️ 定価&lt;単価</div>`
+            : (isRetailZeroNew ? `<div style="font-size:0.7rem;color:#e67e22;">⚠️ 定価未設定</div>` : '');
+          const retailNote = existing && existing.retailPrice > 0
+            ? `<div style="font-size:0.7rem;color:var(--text-light);">現在: ${formatCurrency(existing.retailPrice || 0)}</div>`
             : '';
           return `
           <tr>
@@ -3497,9 +3494,10 @@ function renderDeliverySlipItems() {
             <td><input type="text" value="${escapeAttr(it.name)}" onchange="updateDsField(${idx},'name',this.value)" style="width:100%;min-width:180px;padding:4px;"></td>
             <td><input type="number" value="${it.quantity}" min="0" onchange="updateDsField(${idx},'quantity',this.value)" style="width:56px;padding:4px;text-align:right;"></td>
             <td><input type="text" value="${escapeAttr(it.unit)}" onchange="updateDsField(${idx},'unit',this.value)" style="width:48px;padding:4px;"></td>
-            <td><input type="number" value="${it.unitPrice}" min="0" onchange="updateDsField(${idx},'unitPrice',this.value)" style="width:76px;padding:4px;text-align:right;">${priceWarn}</td>
+            <td><input type="number" value="${it.unitPrice}" min="0" onchange="updateDsField(${idx},'unitPrice',this.value)" style="width:76px;padding:4px;text-align:right;"></td>
             <td>
-              <input type="number" value="${it.retailPrice || 0}" min="0" onchange="updateDsField(${idx},'retailPrice',this.value)" style="width:76px;padding:4px;text-align:right;">
+              <input type="number" value="${it.retailPrice || 0}" min="0" onchange="updateDsField(${idx},'retailPrice',this.value)" style="width:76px;padding:4px;text-align:right;border:${retailBorder};background:${retailBg};">
+              ${retailWarn}
               ${retailNote}
             </td>
             <td>${statusTag}</td>
