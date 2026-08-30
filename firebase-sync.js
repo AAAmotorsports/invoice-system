@@ -124,12 +124,13 @@ function updateSyncStatus(connected, error = false) {
   const el = document.getElementById('sync-status');
   if (!el) return;
 
+  const ver = window.APP_VERSION ? ` <span style="opacity:0.7;">v${window.APP_VERSION}</span>` : '';
   if (error) {
-    el.innerHTML = '<span style="color:#e74c3c;">同期エラー</span>';
+    el.innerHTML = '<span style="color:#e74c3c;">同期エラー</span>' + ver;
   } else if (connected) {
-    el.innerHTML = '<span style="color:#27ae60;">同期中</span>';
+    el.innerHTML = '<span style="color:#27ae60;">同期中</span>' + ver;
   } else {
-    el.innerHTML = '<span style="color:#999;">オフライン</span>';
+    el.innerHTML = '<span style="color:#999;">オフライン</span>' + ver;
   }
 }
 
