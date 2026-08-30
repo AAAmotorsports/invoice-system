@@ -499,11 +499,19 @@
 
 <!-- ===== Backup ===== -->
 <section id="page-backup" class="page">
+  <div class="card" style="border-left:4px solid #27ae60;background:#eafaf1;">
+    <h2 style="margin:0 0 6px;">☁️ 自動バックアップ稼働中</h2>
+    <p style="font-size:0.9rem;color:#1f6b3a;margin:0;line-height:1.6;">
+      毎日 <strong>03:00 JST</strong> に GitHub Actions が Firestore の全データを Cloudflare R2 (<code>shopflow-backup</code>) に自動バックアップしています。<br>
+      <span style="font-size:0.85rem;">・daily/ 90日保持　・monthly/ 無期限保持　・自動で古いdaily削除</span>
+    </p>
+  </div>
+
   <div class="card">
-    <h2>バックアップ・復元</h2>
+    <h2>手動バックアップ・復元</h2>
     <p style="font-size:0.9rem;color:var(--text-light);margin-bottom:16px;">
-      全データ（在庫・請求書・設定・顧客）をJSONファイルとしてエクスポート/インポートできます。<br>
-      iCloud Driveに保存することで他の端末と共有できます。
+      自動バックアップに加えて、任意で JSON ファイルをローカル/iCloud に手動保存できます（3重防御）。<br>
+      別端末へデータ移行する時にも使えます。
     </p>
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
       <button class="btn btn-primary" onclick="exportBackup()">バックアップをエクスポート</button>

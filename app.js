@@ -1,7 +1,7 @@
 /* ===================================================
    請求書発行システム - メインアプリケーション
    =================================================== */
-window.APP_VERSION = '59';
+window.APP_VERSION = '60';
 
 // ---- Data Store ----
 const STORAGE_KEYS = {
@@ -266,40 +266,10 @@ function switchSalesView(mode) {
 
 // ダッシュボード: バックアップ状況バナー
 function renderBackupBanner() {
-  const container = document.getElementById('dashboard-stats');
-  if (!container) return;
-  // 既存のバナー削除
+  // R2 自動バックアップ (GitHub Actions 毎日 03:00 JST) が稼働中なので
+  // 手動バックアップリマインダーは撤去。必要なら「バックアップ」タブから手動可能。
   const existing = document.getElementById('backup-banner');
   if (existing) existing.remove();
-
-  const lastRaw = localStorage.getItem('invoice_sys_lastBackup');
-  const now = Date.now();
-  let color, bg, icon, text, actionBtn;
-
-  if (!lastRaw) {
-    color = '#e74c3c'; bg = '#fdedec'; icon = '⚠️';
-    text = 'まだ一度もローカルバックアップしていません。クラウド同期は動いていますが、月1回のJSONバックアップ推奨。';
-    actionBtn = '<button class="btn btn-danger btn-sm" onclick="jumpToBackup()">今すぐバックアップ</button>';
-  } else {
-    const lastDate = new Date(lastRaw);
-    const days = Math.floor((now - lastDate.getTime()) / (24 * 3600 * 1000));
-    const dateStr = lastDate.toISOString().slice(0, 10);
-    if (days >= 30) {
-      color = '#e67e22'; bg = '#fef5e7'; icon = '⏰';
-      text = `最終バックアップ: ${dateStr}（${days}日前）— 月1回の推奨を超えました`;
-      actionBtn = '<button class="btn btn-primary btn-sm" onclick="jumpToBackup()">バックアップする</button>';
-    } else {
-      color = '#27ae60'; bg = '#eafaf1'; icon = '✅';
-      text = `最終バックアップ: ${dateStr}（${days}日前）— 順調です`;
-      actionBtn = '';
-    }
-  }
-
-  const banner = document.createElement('div');
-  banner.id = 'backup-banner';
-  banner.style.cssText = `background:${bg};color:${color};border-left:4px solid ${color};padding:10px 14px;border-radius:6px;margin-top:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:0.9rem;`;
-  banner.innerHTML = `<div>${icon} ${text}</div>${actionBtn}`;
-  container.insertAdjacentElement('afterend', banner);
 }
 
 function jumpToBackup() {
