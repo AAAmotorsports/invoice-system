@@ -25,7 +25,7 @@ const DEFAULT_SETTINGS = {
   ],
   taxRate: 10,
   logoImage: '',
-  anthropicApiKey: '', // AI機能用（ローカル端末にのみ保存、Firebase同期対象外）
+  anthropicApiKey: '', // AI機能用（Firebase 経由で全端末に同期）
   masterCategories: [
     'エンジン部品',
     'フレーム部品',
