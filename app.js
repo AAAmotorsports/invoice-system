@@ -1,7 +1,7 @@
 /* ===================================================
    請求書発行システム - メインアプリケーション
    =================================================== */
-window.APP_VERSION = '60';
+window.APP_VERSION = '61';
 
 // ---- Data Store ----
 const STORAGE_KEYS = {
@@ -1294,12 +1294,16 @@ function renderHistory(search = '') {
   }
   emptyEl.style.display = 'none';
 
-  listEl.innerHTML = sorted.map(inv => `
+  listEl.innerHTML = sorted.map(inv => {
+    const freeeBadge = inv.freeeDealId
+      ? `<span style="display:inline-block;padding:1px 6px;border-radius:8px;background:#2ecc71;color:#fff;font-size:0.7rem;margin-left:6px;" title="freee取引ID: ${inv.freeeDealId}">📤 freee済</span>`
+      : `<span style="display:inline-block;padding:1px 6px;border-radius:8px;background:#95a5a6;color:#fff;font-size:0.7rem;margin-left:6px;">📤 freee未送信</span>`;
+    return `
     <div class="history-card" style="display:flex;align-items:center;gap:10px;">
       <input type="checkbox" class="hist-check" value="${inv.id}" onchange="updateHistoryBulkBar()" onclick="event.stopPropagation()">
       <div style="flex:1;cursor:pointer;" onclick="showInvoiceDetail('${inv.id}')">
         <div class="hc-header">
-          <span class="hc-customer">${escapeHtml(inv.customerName)} ${escapeHtml(inv.honorific || '様')}</span>
+          <span class="hc-customer">${escapeHtml(inv.customerName)} ${escapeHtml(inv.honorific || '様')}${freeeBadge}</span>
           <span class="hc-date">${inv.invoiceDate}</span>
         </div>
         <div class="hc-subject">${escapeHtml(inv.subject)} (${inv.invoiceNumber})</div>
@@ -1309,8 +1313,8 @@ function renderHistory(search = '') {
         <label class="status-check"><input type="checkbox" ${inv.sent ? 'checked' : ''} onchange="toggleInvoiceFlag('${inv.id}','sent',this.checked)"><span>送付</span></label>
         <label class="status-check"><input type="checkbox" ${inv.paid ? 'checked' : ''} onchange="toggleInvoiceFlag('${inv.id}','paid',this.checked)"><span>入金</span></label>
       </div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
   updateHistoryBulkBar();
 }
 

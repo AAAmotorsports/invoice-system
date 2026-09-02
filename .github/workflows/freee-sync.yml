@@ -1,0 +1,36 @@
+name: SHOPFLOW → freee Auto Sync
+
+on:
+  schedule:
+    # 毎日 04:00 JST = 19:00 UTC (バックアップの1時間後)
+    - cron: '0 19 * * *'
+  workflow_dispatch:  # 手動実行も可
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        working-directory: ./scripts
+        run: npm install
+
+      - name: Sync to freee
+        working-directory: ./scripts
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          FIREBASE_PROJECT_ID: invoice-system-fe637
+          FREEE_CLIENT_ID: ${{ secrets.FREEE_CLIENT_ID }}
+          FREEE_CLIENT_SECRET: ${{ secrets.FREEE_CLIENT_SECRET }}
+          FREEE_REFRESH_TOKEN: ${{ secrets.FREEE_REFRESH_TOKEN }}
+          FREEE_COMPANY_ID: '28630'
+          FREEE_ACCOUNT_ITEM_ID: '4366958'
+          FREEE_TAX_CODE: '129'
+        run: node freee-sync.js
