@@ -43,18 +43,8 @@ const db = admin.firestore();
 const mainDocRef = db.collection('appData').doc('main');
 const freeeDocRef = db.collection('appData').doc('freeeState');
 
-// --- freee OAuth: access_token 取得 (refresh_token ローテーション対応) ---
-async function getFreeeAccessToken() {
-  // Firestore に保存されたローテート後の refresh_token を優先
-  let refreshToken = FREEE_REFRESH_TOKEN;
-  const stateSnap = await freeeDocRef.get();
-  if (stateSnap.exists && stateSnap.data().refresh_token) {
-    refreshToken = stateSnap.data().refresh_token;
-    console.log('  🔑 Firestore 保存の refresh_token を使用');
-  } else {
-    console.log('  🔑 GitHub Secret の初期 refresh_token を使用');
-  }
-
+// --- refresh_token → access_token 交換 (単発) ---
+async function refreshAccessToken(refreshToken) {
   const res = await fetch('https://accounts.secure.freee.co.jp/public_api/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -65,18 +55,52 @@ async function getFreeeAccessToken() {
       client_secret: FREEE_CLIENT_SECRET,
     }),
   });
+  const text = await res.text();
   if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`freee token 更新失敗: ${res.status} ${err}`);
+    const err = new Error(`freee token 更新失敗: ${res.status} ${text}`);
+    err.status = res.status;
+    err.body = text;
+    throw err;
   }
-  const data = await res.json();
+  return JSON.parse(text);
+}
 
-  // 新しい refresh_token を Firestore に保存 (ローテーション)
+// --- freee OAuth: access_token 取得 (ローテーション対応 + フォールバック) ---
+async function getFreeeAccessToken() {
+  const stateSnap = await freeeDocRef.get();
+  const firestoreToken = stateSnap.exists ? stateSnap.data().refresh_token : null;
+
+  // 1st: Firestore に保存されたローテート後の refresh_token を優先
+  if (firestoreToken) {
+    try {
+      console.log('  🔑 Firestore 保存の refresh_token を使用');
+      const data = await refreshAccessToken(firestoreToken);
+      // ローテートされた新しい refresh_token を保存
+      await freeeDocRef.set({
+        refresh_token: data.refresh_token,
+        updated_at: admin.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+      return data.access_token;
+    } catch (err) {
+      const isInvalid = err.status === 401 && err.body && err.body.includes('invalid_grant');
+      if (!isInvalid) throw err;
+      console.warn('  ⚠️ Firestore の refresh_token が無効 → GitHub Secret にフォールバック');
+      // Firestore の壊れた値をクリア
+      await freeeDocRef.set({
+        refresh_token: null,
+        invalidated_at: admin.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+    }
+  }
+
+  // 2nd: GitHub Secret の refresh_token (初期またはユーザーが更新した最新)
+  console.log('  🔑 GitHub Secret の refresh_token を使用');
+  const data = await refreshAccessToken(FREEE_REFRESH_TOKEN);
+  // ローテートされた新しい refresh_token を Firestore に保存
   await freeeDocRef.set({
     refresh_token: data.refresh_token,
     updated_at: admin.firestore.FieldValue.serverTimestamp(),
   }, { merge: true });
-
   return data.access_token;
 }
 
