@@ -150,23 +150,33 @@ async function findDealByRefNumber(refNumber, issueDate, accessToken) {
   return (res.deals || []).find(d => d.ref_number === refNumber);
 }
 
+// マイナス金額 (返金) 用の勘定科目
+const REFUND_ACCOUNT_ITEM_ID = 4366960;  // 売上戻り高
+const REFUND_TAX_CODE = 26;  // 課税売上返還10%
+
 // --- SHOPFLOW invoice → freee deal 登録 ---
 async function registerInvoice(inv, accessToken, partnerCache) {
-  // 既存チェック
-  const existing = await findDealByRefNumber(inv.invoiceNumber, inv.invoiceDate, accessToken);
+  const isRefund = inv.total < 0;
+  const absAmount = Math.abs(inv.total);
+  // ref_number 衝突対策: 通常は請求書番号そのまま、衝突検出後は SF- プレフィックス
+  let refNumber = inv.invoiceNumber;
+
+  // 既存チェック (元番号)
+  const existing = await findDealByRefNumber(refNumber, inv.invoiceDate, accessToken);
   if (existing) {
-    // ref_number 一致でも中身違いの可能性 (前回の 20260731002 みたいなケース)
-    // 金額とパートナー名で厳密チェック
-    const partnerName = inv.customerName;
-    const partnerMatch = existing.partner_id
-      ? true  // 既に partner_id ある = 別の同ref番号取引の可能性、保守的にスキップ
-      : false;
-    if (existing.amount === inv.total) {
+    if (existing.amount === absAmount) {
       console.log(`    ⚠️  既に freee に登録済み (id=${existing.id}, 金額一致) → スキップ`);
       return { skipped: true, freeeDealId: existing.id };
     } else {
-      console.log(`    ⚠️  ref_number 衝突 (freee側は別取引 id=${existing.id} ¥${existing.amount}) → スキップ、要手動確認`);
-      return { skipped: true, conflict: true, freeeDealId: null };
+      // ref衝突 → SF- プレフィックス版で再チェック
+      const altRef = `SF-${refNumber}`;
+      const altExisting = await findDealByRefNumber(altRef, inv.invoiceDate, accessToken);
+      if (altExisting && altExisting.amount === absAmount) {
+        console.log(`    ⚠️  ${altRef} で既に登録済み (id=${altExisting.id}) → スキップ`);
+        return { skipped: true, freeeDealId: altExisting.id };
+      }
+      console.log(`    ↩️  ref_number 衝突 → ${altRef} で登録し直します`);
+      refNumber = altRef;
     }
   }
 
@@ -177,25 +187,26 @@ async function registerInvoice(inv, accessToken, partnerCache) {
   const items = inv.items || [];
   const top = items[0]?.description || '';
   const extra = items.length > 1 ? ` 他${items.length - 1}件` : '';
-  let desc = `${inv.subject || ''} / ${top}${extra}`;
+  const prefix = isRefund ? '【返金】' : '';
+  let desc = `${prefix}${inv.subject || ''} / ${top}${extra}`;
   if (desc.length > 60) desc = desc.slice(0, 57) + '...';
 
-  // 取引作成
+  // 取引作成 (通常 or 返金)
+  const details = isRefund
+    ? [{ account_item_id: REFUND_ACCOUNT_ITEM_ID, tax_code: REFUND_TAX_CODE, amount: absAmount, description: desc }]
+    : [{ account_item_id: ACCOUNT_ITEM_ID, tax_code: TAX_CODE, amount: absAmount, description: desc }];
+
   const createRes = await freeeApi('POST', '/api/1/deals', accessToken, {
     company_id: COMPANY_ID,
     issue_date: inv.invoiceDate,
     type: 'income',
-    ref_number: inv.invoiceNumber,
+    ref_number: refNumber,
     partner_id: partnerId,
-    details: [{
-      account_item_id: ACCOUNT_ITEM_ID,
-      tax_code: TAX_CODE,
-      amount: inv.total,
-      description: desc,
-    }],
+    details,
   });
   const dealId = createRes.deal.id;
-  console.log(`    ✅ freee 登録成功: deal_id=${dealId}`);
+  const label = isRefund ? '返金取引' : '取引';
+  console.log(`    ✅ freee ${label} 登録成功: deal_id=${dealId} ref=${refNumber}`);
   return { skipped: false, freeeDealId: dealId };
 }
 
@@ -219,11 +230,12 @@ async function main() {
   console.log('   OK');
 
   // 3. 未送信 & 通常請求書 (合計請求書 type='combined' は除く) を抽出
+  //    金額 0 は対象外、マイナス金額 (返金) は別処理で対応
   const targets = invoices.filter(inv =>
     !inv.freeeDealId &&
     (!inv.type || inv.type === 'sale') &&
     inv.total &&
-    inv.total > 0
+    inv.total !== 0
   );
   console.log(`\n📋 未送信の請求書: ${targets.length} 件\n`);
 
