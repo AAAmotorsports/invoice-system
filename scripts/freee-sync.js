@@ -239,12 +239,21 @@ async function main() {
   console.log(`   会社: company_id=${COMPANY_ID}`);
   console.log('');
 
-  // 1. Firestore 読込
+  // 1. Firestore 読込 (v5 旧構造 と v6 分割構造の両対応)
   console.log('📥 Firestore 読込中...');
   const snap = await mainDocRef.get();
   if (!snap.exists) throw new Error('appData/main が存在しません');
   const remote = snap.data();
-  const invoicesJson = remote.invoices_json || '[]';
+  const remoteVersion = remote.version || 5;
+  let invoicesJson;
+  if (remoteVersion >= 6) {
+    const invSnap = await db.collection('appData').doc('invoices').get();
+    invoicesJson = invSnap.exists ? (invSnap.data().data || '[]') : '[]';
+    console.log(`   構造 v${remoteVersion} (分割) から読込`);
+  } else {
+    invoicesJson = remote.invoices_json || '[]';
+    console.log(`   構造 v${remoteVersion} (旧) から読込`);
+  }
   const invoices = JSON.parse(invoicesJson);
   console.log(`   請求書 ${invoices.length} 件`);
 
@@ -292,7 +301,7 @@ async function main() {
     await new Promise(r => setTimeout(r, 500));
   }
 
-  // 5. Firestore に freeeDealId を書き戻し
+  // 5. Firestore に freeeDealId を書き戻し (v6 分割 / v5 旧 両対応)
   if (updated.length > 0) {
     console.log(`\n💾 Firestore に freeeDealId を書き戻し (${updated.length}件)...`);
     const updatedInvoices = invoices.map(inv => {
@@ -300,10 +309,18 @@ async function main() {
       return u ? { ...inv, freeeDealId: u.freeeDealId } : inv;
     });
     const savedAt = new Date().toISOString();
-    await mainDocRef.update({
-      invoices_json: JSON.stringify(updatedInvoices),
-      savedAt,
-    });
+    const updatedInvoicesJson = JSON.stringify(updatedInvoices);
+    if (remoteVersion >= 6) {
+      const batch = db.batch();
+      batch.set(db.collection('appData').doc('invoices'), { savedAt, data: updatedInvoicesJson });
+      batch.set(mainDocRef, { version: 6, savedAt }, { merge: true });
+      await batch.commit();
+    } else {
+      await mainDocRef.update({
+        invoices_json: updatedInvoicesJson,
+        savedAt,
+      });
+    }
     console.log('   OK');
   }
 
