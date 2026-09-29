@@ -57,16 +57,35 @@ function fmtMonth(d) {
   return d.toISOString().slice(0, 7); // YYYY-MM
 }
 
+const DATA_KEYS = ['inventory', 'invoices', 'settings', 'customers', 'purchases', 'expenses'];
+
 async function fetchFirestoreData() {
   console.log('📥 Firestore から appData/main を取得中...');
-  const docRef = db.collection('appData').doc('main');
-  const snap = await docRef.get();
-  if (!snap.exists) {
+  const mainSnap = await db.collection('appData').doc('main').get();
+  if (!mainSnap.exists) {
     throw new Error('appData/main ドキュメントが存在しません');
   }
-  const data = snap.data();
-  console.log(`✅ 取得完了: ${Object.keys(data).length} フィールド, savedAt=${data.savedAt || '(なし)'}`);
-  return data;
+  const meta = mainSnap.data();
+  const version = meta.version || 5;
+
+  if (version < 6) {
+    // 旧構造: main に *_json フィールド全部入り
+    console.log(`✅ 取得完了 (旧構造 v${version}): ${Object.keys(meta).length} フィールド, savedAt=${meta.savedAt || '(なし)'}`);
+    return meta;
+  }
+
+  // 新構造 (v6): main はメタのみ、6ドキュメントに分割済み
+  console.log(`   新構造 v${version} 検出、6ドキュメントを並列取得中...`);
+  const dataSnaps = await Promise.all(DATA_KEYS.map(k => db.collection('appData').doc(k).get()));
+  const result = { version: meta.version, savedAt: meta.savedAt };
+  DATA_KEYS.forEach((k, i) => {
+    const s = dataSnaps[i];
+    if (s.exists && s.data().data) {
+      result[`${k}_json`] = s.data().data;
+    }
+  });
+  console.log(`✅ 取得完了 (新構造 v${version}): ${Object.keys(result).length} フィールド, savedAt=${result.savedAt || '(なし)'}`);
+  return result;
 }
 
 async function uploadToR2(key, body, contentType) {

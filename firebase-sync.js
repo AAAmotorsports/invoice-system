@@ -1,8 +1,18 @@
 /* ===================================================
    Firebase Firestore リアルタイム同期
+   ---------------------------------------------------
+   ドキュメント構造 (v6):
+     appData/main       { version: 6, savedAt }         ← メタのみ
+     appData/inventory  { savedAt, data }               ← 各データを別ドキュメント化
+     appData/invoices   { savedAt, data }
+     appData/settings   { savedAt, data }
+     appData/customers  { savedAt, data }
+     appData/purchases  { savedAt, data }
+     appData/expenses   { savedAt, data }
+   これにより1ドキュメント1MB制限を回避 (6倍容量に)。
+   旧構造 (v5, main に *_json フィールド全部入り) からの自動移行も担当。
    =================================================== */
 
-// Firebase CDN (compat) で読み込み済み前提
 const firebaseConfig = {
   apiKey: "AIzaSyCCUQwYVKvt4_5tHTxk4p-Cw_x8LKsUMBI",
   authDomain: "invoice-system-fe637.firebaseapp.com",
@@ -15,50 +25,89 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 
-// Firestore のドキュメントパス（1ドキュメントに全データを格納）
-const SYNC_DOC = db.collection('appData').doc('main');
+const DATA_KEYS = ['inventory', 'invoices', 'settings', 'customers', 'purchases', 'expenses'];
+const META_DOC = db.collection('appData').doc('main');
+const DATA_DOCS = {
+  inventory: db.collection('appData').doc('inventory'),
+  invoices:  db.collection('appData').doc('invoices'),
+  settings:  db.collection('appData').doc('settings'),
+  customers: db.collection('appData').doc('customers'),
+  purchases: db.collection('appData').doc('purchases'),
+  expenses:  db.collection('appData').doc('expenses')
+};
+const GETTERS = {
+  inventory: () => getInventory(),
+  invoices:  () => getInvoices(),
+  settings:  () => getSettings(),
+  customers: () => getCustomers(),
+  purchases: () => getPurchases(),
+  expenses:  () => getExpenses()
+};
 
-// 同期制御フラグ
 let isSyncingFromFirestore = false;
 let syncEnabled = false;
 let unsubscribeSnapshot = null;
-let lastPushedAt = ''; // 自分がpushしたタイムスタンプを記憶
+let lastPushedAt = '';
 
-// --- Firestore → localStorage 同期 ---
+// --- 6ドキュメントから localStorage へ取り込み ---
+async function pullFromDataDocs(remoteSavedAt) {
+  const snaps = await Promise.all(DATA_KEYS.map(k => DATA_DOCS[k].get()));
+  isSyncingFromFirestore = true;
+  DATA_KEYS.forEach((k, i) => {
+    const s = snaps[i];
+    if (s.exists && s.data().data) {
+      localStorage.setItem(STORAGE_KEYS[k], s.data().data);
+    }
+  });
+  localStorage.setItem('invoice_sys_savedAt', remoteSavedAt);
+  isSyncingFromFirestore = false;
+}
+
+// --- 旧構造 (main に *_json 全部入り) から取り込み ---
+function pullFromMainOldFormat(remoteData, remoteSavedAt) {
+  isSyncingFromFirestore = true;
+  const map = {
+    inventory_json: STORAGE_KEYS.inventory,
+    invoices_json:  STORAGE_KEYS.invoices,
+    settings_json:  STORAGE_KEYS.settings,
+    customers_json: STORAGE_KEYS.customers,
+    purchases_json: STORAGE_KEYS.purchases,
+    expenses_json:  STORAGE_KEYS.expenses
+  };
+  for (const [rk, lk] of Object.entries(map)) {
+    if (remoteData[rk]) localStorage.setItem(lk, remoteData[rk]);
+  }
+  localStorage.setItem('invoice_sys_savedAt', remoteSavedAt);
+  isSyncingFromFirestore = false;
+}
+
+// --- Firestore → localStorage 同期 (リアルタイム) ---
 function startRealtimeSync() {
-  if (unsubscribeSnapshot) return; // 既にリスニング中
+  if (unsubscribeSnapshot) return;
+  syncEnabled = true;
 
-  syncEnabled = true; // ★ リスナー登録前に有効化
-
-  unsubscribeSnapshot = SYNC_DOC.onSnapshot(
-    (doc) => {
+  unsubscribeSnapshot = META_DOC.onSnapshot(
+    async (doc) => {
       if (!doc.exists) return;
       const remoteData = doc.data();
       const localSavedAt = localStorage.getItem('invoice_sys_savedAt') || '';
       const remoteSavedAt = remoteData.savedAt || '';
 
-      // 自分がpushしたデータの場合はスキップ
       if (remoteSavedAt === lastPushedAt) return;
+      if (remoteSavedAt <= localSavedAt) return;
 
-      // リモートの方が新しければローカルを更新
-      if (remoteSavedAt > localSavedAt) {
-        isSyncingFromFirestore = true;
-        if (remoteData.inventory_json) localStorage.setItem(STORAGE_KEYS.inventory, remoteData.inventory_json);
-        if (remoteData.invoices_json) localStorage.setItem(STORAGE_KEYS.invoices, remoteData.invoices_json);
-        if (remoteData.settings_json) localStorage.setItem(STORAGE_KEYS.settings, remoteData.settings_json);
-        if (remoteData.customers_json) localStorage.setItem(STORAGE_KEYS.customers, remoteData.customers_json);
-        if (remoteData.purchases_json) localStorage.setItem(STORAGE_KEYS.purchases, remoteData.purchases_json);
-        if (remoteData.expenses_json) localStorage.setItem(STORAGE_KEYS.expenses, remoteData.expenses_json);
-        localStorage.setItem('invoice_sys_savedAt', remoteSavedAt);
-        // オーバーレイを閉じる
-        const overlay = document.getElementById('data-load-overlay');
-        if (overlay) overlay.style.display = 'none';
-        // UI更新
-        renderDashboard();
-        refreshCreatePage();
-        showToast('クラウドから同期しました', 'success');
-        isSyncingFromFirestore = false;
+      const version = remoteData.version || 5;
+      if (version >= 6) {
+        await pullFromDataDocs(remoteSavedAt);
+      } else {
+        pullFromMainOldFormat(remoteData, remoteSavedAt);
       }
+
+      const overlay = document.getElementById('data-load-overlay');
+      if (overlay) overlay.style.display = 'none';
+      renderDashboard();
+      refreshCreatePage();
+      showToast('クラウドから同期しました', 'success');
     },
     (error) => {
       console.error('Firestore リアルタイム同期エラー:', error);
@@ -78,27 +127,19 @@ function stopRealtimeSync() {
   updateSyncStatus(false);
 }
 
-// --- localStorage → Firestore 同期 ---
-// ★ Firestoreはネストされたオブジェクト配列に制限があるため、
-//    各データをJSON文字列として保存することで回避
-// ★ logoImageはアップロード時に圧縮済み（最大300px・JPEG）なので同期OK
+// --- localStorage → Firestore 同期 (6ドキュメント + main を1バッチで原子的書込) ---
 async function pushToFirestore() {
   if (isSyncingFromFirestore) return;
 
   const savedAt = new Date().toISOString();
-  const data = {
-    version: 5,
-    savedAt: savedAt,
-    inventory_json: JSON.stringify(getInventory()),
-    invoices_json: JSON.stringify(getInvoices()),
-    settings_json: JSON.stringify(getSettings()),
-    customers_json: JSON.stringify(getCustomers()),
-    purchases_json: JSON.stringify(getPurchases()),
-    expenses_json: JSON.stringify(getExpenses())
-  };
+  const batch = db.batch();
+  for (const k of DATA_KEYS) {
+    batch.set(DATA_DOCS[k], { savedAt, data: JSON.stringify(GETTERS[k]()) });
+  }
+  batch.set(META_DOC, { version: 6, savedAt });
 
   try {
-    await SYNC_DOC.set(data);
+    await batch.commit();
     lastPushedAt = savedAt;
     localStorage.setItem('invoice_sys_savedAt', savedAt);
     updateSyncStatus(true);
@@ -109,7 +150,6 @@ async function pushToFirestore() {
   }
 }
 
-// デバウンス: 連続変更時に短時間で何度もFirestoreに書き込まない
 let pushTimer = null;
 function debouncedPush() {
   if (!syncEnabled) return;
@@ -137,59 +177,34 @@ function updateSyncStatus(connected, error = false) {
 // --- 初回同期 ---
 async function initialSync() {
   try {
-    const doc = await SYNC_DOC.get();
-    if (doc.exists) {
-      const remoteData = doc.data();
-      const localSavedAt = localStorage.getItem('invoice_sys_savedAt') || '';
-      const remoteSavedAt = remoteData.savedAt || '';
-
-      if (remoteSavedAt > localSavedAt) {
-        // リモートの方が新しい → ダウンロード（v4 JSON文字列 / v3 オブジェクト 両対応）
-        if (remoteData.inventory_json) {
-          localStorage.setItem(STORAGE_KEYS.inventory, remoteData.inventory_json);
-        } else if (remoteData.inventory) {
-          localStorage.setItem(STORAGE_KEYS.inventory, JSON.stringify(remoteData.inventory));
-        }
-        if (remoteData.invoices_json) {
-          localStorage.setItem(STORAGE_KEYS.invoices, remoteData.invoices_json);
-        } else if (remoteData.invoices) {
-          localStorage.setItem(STORAGE_KEYS.invoices, JSON.stringify(remoteData.invoices));
-        }
-        if (remoteData.settings_json) {
-          localStorage.setItem(STORAGE_KEYS.settings, remoteData.settings_json);
-        } else if (remoteData.settings) {
-          localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(remoteData.settings));
-        }
-        if (remoteData.customers_json) {
-          localStorage.setItem(STORAGE_KEYS.customers, remoteData.customers_json);
-        } else if (remoteData.customers) {
-          localStorage.setItem(STORAGE_KEYS.customers, JSON.stringify(remoteData.customers));
-        }
-        if (remoteData.purchases_json) {
-          localStorage.setItem(STORAGE_KEYS.purchases, remoteData.purchases_json);
-        } else if (remoteData.purchases) {
-          localStorage.setItem(STORAGE_KEYS.purchases, JSON.stringify(remoteData.purchases));
-        }
-        if (remoteData.expenses_json) {
-          localStorage.setItem(STORAGE_KEYS.expenses, remoteData.expenses_json);
-        } else if (remoteData.expenses) {
-          localStorage.setItem(STORAGE_KEYS.expenses, JSON.stringify(remoteData.expenses));
-        }
-        localStorage.setItem('invoice_sys_savedAt', remoteSavedAt);
-        const overlay = document.getElementById('data-load-overlay');
-        if (overlay) overlay.style.display = 'none';
-        renderDashboard();
-        refreshCreatePage();
-        showToast('クラウドからデータを復元しました');
-      } else {
-        await pushToFirestore();
-      }
-    } else {
+    const doc = await META_DOC.get();
+    if (!doc.exists) {
       const hasLocalData = loadData(STORAGE_KEYS.inventory) || loadData(STORAGE_KEYS.invoices);
       if (hasLocalData) {
         await pushToFirestore();
         showToast('クラウドにデータをアップロードしました');
       }
+      return;
+    }
+
+    const remoteData = doc.data();
+    const localSavedAt = localStorage.getItem('invoice_sys_savedAt') || '';
+    const remoteSavedAt = remoteData.savedAt || '';
+    const version = remoteData.version || 5;
+
+    if (remoteSavedAt > localSavedAt) {
+      if (version >= 6) {
+        await pullFromDataDocs(remoteSavedAt);
+      } else {
+        pullFromMainOldFormat(remoteData, remoteSavedAt);
+      }
+      const overlay = document.getElementById('data-load-overlay');
+      if (overlay) overlay.style.display = 'none';
+      renderDashboard();
+      refreshCreatePage();
+      showToast('クラウドからデータを復元しました');
+    } else {
+      await pushToFirestore();
     }
   } catch (error) {
     console.error('初回同期エラー:', error);
