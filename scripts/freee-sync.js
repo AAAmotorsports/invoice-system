@@ -1,10 +1,14 @@
 /**
  * SHOPFLOW → freee 自動同期スクリプト (GitHub Actions 用)
  *
+ * スケジュール: 毎月10日 04:00 JST
+ * 対象: 前月末までに発行された未送信 (freeeDealId 無し) 請求書
+ *   → 今月分は 1 ヶ月寝かせて修正が落ち着いてから送る
+ *
  * 流れ:
  * 1. Firestore の appData/main を読む
  * 2. freee アクセストークン取得 (refresh_token で更新)
- * 3. 未送信 (freeeDealId 無し) の請求書を抽出
+ * 3. 未送信 (freeeDealId 無し) & 前月末までの請求書を抽出
  * 4. 各請求書について:
  *    - freee で ref_number 検索 (重複防止・冪等性)
  *    - なければ 取引先を find or create
@@ -262,15 +266,25 @@ async function main() {
   const accessToken = await getFreeeAccessToken();
   console.log('   OK');
 
-  // 3. 未送信 & 通常請求書 (合計請求書 type='combined' は除く) を抽出
-  //    金額 0 は対象外、マイナス金額 (返金) は別処理で対応
+  // 3. 「前月末まで」の未送信請求書を抽出
+  //    - 今月分は 1 ヶ月寝かせて修正の猶予を確保 (freee 登録後は修正しても反映されないため)
+  //    - 合計請求書 (type='combined') と 金額 0 は対象外
+  //    - マイナス金額 (返金) は別処理で対応
+  //    - 前月末まで含めるので、過去月の未送信も救済できる (例: 2 ヶ月前のを後から入れた場合も次回拾う)
+  const now = new Date();
+  const nowJst = new Date(now.getTime() + 9 * 3600 * 1000);
+  // 今月1日 (JST) = 前月末の翌日。 これ未満なら「前月以前」
+  const thisMonthFirstJst = `${nowJst.getUTCFullYear()}-${String(nowJst.getUTCMonth() + 1).padStart(2, '0')}-01`;
+  console.log(`   対象期間: invoiceDate < ${thisMonthFirstJst} (JST 今月1日未満 = 前月末まで)`);
   const targets = invoices.filter(inv =>
     !inv.freeeDealId &&
     (!inv.type || inv.type === 'sale') &&
     inv.total &&
-    inv.total !== 0
+    inv.total !== 0 &&
+    inv.invoiceDate &&
+    inv.invoiceDate < thisMonthFirstJst
   );
-  console.log(`\n📋 未送信の請求書: ${targets.length} 件\n`);
+  console.log(`\n📋 未送信の請求書 (前月末まで): ${targets.length} 件\n`);
 
   if (targets.length === 0) {
     console.log('✅ 送信対象なし、終了');
