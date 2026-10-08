@@ -175,9 +175,25 @@ function updateSyncStatus(connected, error = false) {
 }
 
 // --- 初回同期 ---
+// ★ サーバーから最新 META を取得する (`fromCache` 由来の古い savedAt を
+//    拾って、ローカルの古いデータで Firestore を overwrite する事故を防ぐ)。
+//    2026-10 に 2 回連続で請求書 3 件が消える事故が起きた根本原因。
+//    流れ: PC で新データを push → iPhone がオフライン後の open 時に
+//    Firestore オフライン cache から古い savedAt を get → else 分岐で
+//    古いローカルを新 timestamp で push → PC が onSnapshot で古いのに戻る。
 async function initialSync() {
   try {
-    const doc = await META_DOC.get();
+    let doc;
+    try {
+      // サーバー強制: cache を信じない
+      doc = await META_DOC.get({ source: 'server' });
+    } catch (netErr) {
+      // オフライン時は cache で読むが、その場合は push 判定しない (下記)
+      console.warn('initialSync: server unreachable, falling back to cache', netErr);
+      doc = await META_DOC.get({ source: 'cache' }).catch(() => null);
+      if (!doc) return;  // cache も無ければ何もしない
+    }
+
     if (!doc.exists) {
       const hasLocalData = loadData(STORAGE_KEYS.inventory) || loadData(STORAGE_KEYS.invoices);
       if (hasLocalData) {
@@ -191,6 +207,7 @@ async function initialSync() {
     const localSavedAt = localStorage.getItem('invoice_sys_savedAt') || '';
     const remoteSavedAt = remoteData.savedAt || '';
     const version = remoteData.version || 5;
+    const fromCache = doc.metadata && doc.metadata.fromCache;
 
     if (remoteSavedAt > localSavedAt) {
       if (version >= 6) {
@@ -203,11 +220,15 @@ async function initialSync() {
       renderDashboard();
       refreshCreatePage();
       showToast('クラウドからデータを復元しました');
-    } else {
+    } else if (localSavedAt > remoteSavedAt && !fromCache) {
+      // ★ 「ローカルが明確に新しい」かつ「サーバーから直接確認済」の
+      //    時だけ push。等しい時や cache 由来の時は push しない
+      //    (古いローカルで overwrite する事故を防ぐ)。
       await pushToFirestore();
     }
+    // else: 同期済み or cache 由来の疑わしい状況 → 何もしない
   } catch (error) {
     console.error('初回同期エラー:', error);
-    showToast('クラウド接続に失敗しました（オフラインモード）', 'error');
+    showToast('クラウド接続に失敗しました(オフラインモード)', 'error');
   }
 }
