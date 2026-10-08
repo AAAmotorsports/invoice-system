@@ -2,8 +2,8 @@ name: SHOPFLOW → freee Auto Sync
 
 on:
   schedule:
-    # 毎日 04:00 JST = 19:00 UTC (バックアップの1時間後)
-    - cron: '0 19 * * *'
+    # 毎月10日 04:00 JST = 毎月9日 19:00 UTC (前月分の請求書だけ送る)
+    - cron: '0 19 9 * *'
   workflow_dispatch:  # 手動実行も可
 
 jobs:
