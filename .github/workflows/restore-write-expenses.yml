@@ -1,0 +1,43 @@
+name: Restore - Write Expenses to Firestore
+
+on:
+  workflow_dispatch:
+    inputs:
+      backup_key:
+        description: 'R2 backup key (例: daily/shopflow-20261008.json)'
+        required: true
+        default: 'daily/shopflow-20261008.json'
+      force:
+        description: '現在 Firestore に経費があっても強制上書きする'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        working-directory: ./scripts
+        run: npm install
+
+      - name: Restore expenses to Firestore
+        working-directory: ./scripts
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          FIREBASE_PROJECT_ID: invoice-system-fe637
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          BACKUP_KEY: ${{ github.event.inputs.backup_key }}
+          FORCE: ${{ github.event.inputs.force == 'true' && '1' || '' }}
+        run: node restore-expenses.js
