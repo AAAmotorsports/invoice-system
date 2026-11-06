@@ -1,7 +1,7 @@
 /* ===================================================
    請求書発行システム - メインアプリケーション
    =================================================== */
-window.APP_VERSION = '63';
+window.APP_VERSION = '64';
 
 // ---- Data Store ----
 const STORAGE_KEYS = {
@@ -2504,19 +2504,49 @@ function importBackup(event) {
   const file = event.target.files[0];
   if (!file) return;
 
-  if (!confirm('現在のデータを上書きして復元しますか？\n（現在のデータは失われます）')) {
-    event.target.value = '';
-    return;
-  }
-
   const reader = new FileReader();
   reader.onload = function(e) {
     try {
       const data = JSON.parse(e.target.result);
       if (!data.inventory || !data.invoices || !data.settings) {
         showToast('無効なバックアップファイルです', 'error');
+        event.target.value = '';
         return;
       }
+
+      // データ消失ガード: 「現在データあり」なのに「インポートJSONが空/無し」の
+      // 項目を抽出 → 具体的に件数を出して警告
+      // (2026-10-08 に経費データが import 時に消滅した事故の再発防止)
+      const checks = [
+        { label: '在庫',     current: getInventory().length, incomingArr: data.inventory },
+        { label: '請求書',   current: getInvoices().length,  incomingArr: data.invoices },
+        { label: '顧客',     current: getCustomers().length, incomingArr: data.customers },
+        { label: '入庫ログ', current: getPurchases().length, incomingArr: data.purchases },
+        { label: '経費請求', current: getExpenses().length,  incomingArr: data.expenses },
+      ];
+      const atRisk = checks.filter(c =>
+        c.current > 0 && (!Array.isArray(c.incomingArr) || c.incomingArr.length === 0)
+      );
+
+      if (atRisk.length > 0) {
+        const lines = atRisk
+          .map(c => `  ・${c.label}: 現在 ${c.current} 件 → インポート後 0 件`)
+          .join('\n');
+        if (!confirm(
+          `⚠️ インポートファイルに以下のデータが含まれていません。\n` +
+          `このままインポートすると消えます:\n\n${lines}\n\n` +
+          `続行しますか? (キャンセル推奨)`
+        )) {
+          event.target.value = '';
+          return;
+        }
+      } else {
+        if (!confirm('現在のデータを上書きして復元しますか？\n（現在のデータは失われます）')) {
+          event.target.value = '';
+          return;
+        }
+      }
+
       setInventory(data.inventory);
       setInvoices(data.invoices);
       setSettings(data.settings);
